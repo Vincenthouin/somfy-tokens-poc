@@ -1,0 +1,61 @@
+name: Validate tokens
+
+on:
+  pull_request:
+    paths:
+      - 'tokens/**'
+  push:
+    branches: [main]
+    paths:
+      - 'tokens/**'
+
+jobs:
+  validate-json:
+    name: Validate tokens JSON
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Validate JSON syntax
+        run: |
+          echo "🔍 Validating tokens/somfy-tokens.json..."
+          python3 -m json.tool tokens/somfy-tokens.json > /dev/null
+          echo "✅ Valid JSON"
+
+      - name: Check structure
+        run: |
+          python3 <<'EOF'
+          import json, sys
+          with open('tokens/somfy-tokens.json') as f:
+              data = json.load(f)
+          required = ['primitives', 'semantic', 'composite', 'component']
+          missing = [k for k in required if k not in data]
+          if missing:
+              print(f"❌ Missing top-level keys: {missing}")
+              sys.exit(1)
+          print(f"✅ Structure OK — top-level: {list(data.keys())}")
+          EOF
+
+      - name: Count tokens & detect dark placeholders
+        run: |
+          python3 <<'EOF'
+          import json
+          with open('tokens/somfy-tokens.json') as f:
+              data = json.load(f)
+
+          def walk(node, placeholders):
+              if isinstance(node, dict):
+                  if '$value' in node:
+                      ext = node.get('$extensions', {})
+                      if ext.get('somfy.darkPlaceholder'):
+                          placeholders[0] += 1
+                      return 1
+                  return sum(walk(v, placeholders) for k, v in node.items() if not k.startswith('$'))
+              return 0
+
+          placeholders = [0]
+          total = walk(data, placeholders)
+          print(f"📊 Total tokens: {total}")
+          print(f"🌗 Dark placeholders to define: {placeholders[0]}")
+          EOF

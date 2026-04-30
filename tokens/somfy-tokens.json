@@ -1,0 +1,866 @@
+{
+  "$schema": "https://design-tokens.github.io/community-group/format/",
+  "$description": "Somfy Loop Design Tokens (W3C format)",
+  "primitives": {
+    "loop": {
+      "color": {
+        "layout": {
+          "main": {
+            "$type": "color",
+            "$value": {
+              "light": "#FFFFFF",
+              "dark": "#95FF00"
+            },
+            "$extensions": {
+              "somfy.darkPlaceholder": true
+            }
+          },
+          "neutral": {
+            "$type": "color",
+            "$value": {
+              "light": "#F3F5F8",
+              "dark": "#95FF00"
+            },
+            "$extensions": {
+              "somfy.darkPlaceholder": true
+            }
+          }
+        },
+        "background": {
+          "main": {
+            "_base": {
+              "$type": "color",
+              "$value": {
+                "light": "#FFFFFF",
+                "dark": "#95FF00"
+              },
+              "$extensions": {
+                "somfy.darkPlaceholder": true
+              }
+            },
+            "onbold": {
+              "$type": "color",
+              "$value": {
+                "light": "#00000080",
+                "dark": "#95FF00"
+              },
+              "$extensions": {
+                "somfy.darkPlaceholder": true
+              }
+            }
+          },
+          "secondary": {
+            "$type": "color",
+            "$value": {
+              "light": "#CACFD5",
+              "dark": "#95FF01"
+            }
+          },
+          "alternative": {
+            "_base": {
+              "$type": "color",
+              "$value": {
+                "light": "#F3F5F8",
+                "dark": "#95FF00"
+              },
+              "$extensions": {
+                "somfy.darkPlaceholder": true
+              }
+            },
+            "onbold": {
+              "$type": "color",
+              "$value": {
+                "light": "#0000004D",
+                "dark": "#95FF00"
+              },
+              "$extensions": {
+                "somfy.darkPlaceholder": true
+              }
+            }
+          },
+          "subtle": {
+            "_base": {
+              "$type": "color",
+              "$value": {
+                "light": "#8996A41A",
+                "dark": "#95FF01"
+              }
+            },
+            "onbold": {
+              "$type": "color",
+              "$value": {
+                "light": "#0000001A",
+                "dark": "#95FF01"
+              }
+            }
+          },
+          "brand": {
+            "primary": {
+              "soft": {
+                "$type": "color",
+                "$value": {
+                  "light": "#FEF1CC",
+                  "dark": "#95FF00"
+                },
+                "$extensions": {
+                  "somfy.darkPlaceholder": true
+                }
+              },
+              "bold": {
+                "$type": "color",
+                "$value": {
+                  "light": "#FAB800",
+                  "dark": "#95FF00"
+                },
+                "$extensions": {
+                  "somfy.darkPlaceholder": true
+                }
+              }
+            },
+            "secondary": {
+              "soft": {
+                "$type": "color",
+                "$value": {
+                  "light": "#C5DBE3",
+                  "dark": "#95FF00"
+                },
+                "$extensions": {
+                  "somfy.darkPlaceholder": true
+                }
+              },
+              "bold": {
+                "$type": "color",
+                "$value": {
+                  "light": "#25485A",
+                  "dark": "#95FF00"
+                },
+                "$extensions": {
+                  "somfy.darkPlaceholder": true
+                }
+              }
+            },
+            "tertiary": {
+              "soft": {
+                "$type": "color",
+                "$value": {
+                  "light": "#E3DBD1",
+                  "dark": "#95FF00"
+                },
+                "$extensions": {
+                  "somfy.darkPlaceholder": true
+                }
+              },
+              "bold": {
+                "$type": "color",
+                "$value": {
+                  "light": "#72635A",
+                  "dark": "#95FF00"
+                },
+                "$extensions": {
+                  "somfy.darkPlaceholder": true
+                }
+              }
+            }
+          },
+          "accent": {
+            "soft": {
+              "$type": "color",
+              "$value": {
+                "light": "#E8FBFD",
+                "dark": "#95FF00"
+              },
+              "$extensions": {
+                "somfy.darkPlaceholder": true
+              }
+            },
+            "bold": {
+              "$type": "color",
+              "$value": {
+                "light": "#12AABB",
+                "dark": "#95FF00"
+              },
+              "$extensions": {
+                "somfy.darkPlaceholder": true
+              }
+            }
+          },
+          "success": {
+            "soft": {
+              "$type": "color",
+              "$value": {
+                "light": "#E7FEF6",
+                "dark": "#95FF00"
+              },
+              "$extensions": {
+                "somfy.darkPlaceholder": true
+              }
+            },
+            "bold": {
+              "$type": "color",
+              "$value": {
+                "light": "#08C27F",
+                "dark": "#95FF00"
+              },
+              "$extensions": {
+                "somfy.darkPlaceholder": true
+              }
+            }
+          },
+          "warning": {
+            "soft": {
+              "$type": "color",
+              "$value": {
+                "light": "#95FF00",
+                "dark": "#95FF00"
+              },
+              "$extensions": {
+                "somfy.darkPlaceholder": true
+              }
+            },
+            "bold": {
+              "$type": "color",
+              "$value": {
+                "light": "#95FF00",
+                "dark": "#95FF00"
+              },
+              "$extensions": {
+                "somfy.darkPlaceholder": true
+              }
+            }
+          },
+          "error": {
+            "soft": {
+              "$type": "color",
+              "$value": {
+                "light": "#FFECE5",
+                "dark": "#95FF00"
+              },
+              "$extensions": {
+                "somfy.darkPlaceholder": true
+              }
+            },
+            "bold": {
+              "$type": "color",
+              "$value": {
+                "light": "#CC3800",
+                "dark": "#95FF00"
+              },
+              "$extensions": {
+                "somfy.darkPlaceholder": true
+              }
+            }
+          }
+        },
+        "content": {
+          "primary": {
+            "_base": {
+              "$type": "color",
+              "$value": {
+                "light": "#1E3A48",
+                "dark": "#95FF00"
+              },
+              "$extensions": {
+                "somfy.darkPlaceholder": true
+              }
+            },
+            "onbold": {
+              "$type": "color",
+              "$value": {
+                "light": "#FFFFFF",
+                "dark": "#95FF00"
+              },
+              "$extensions": {
+                "somfy.darkPlaceholder": true
+              }
+            }
+          },
+          "secondary": {
+            "_base": {
+              "$type": "color",
+              "$value": {
+                "light": "#667075",
+                "dark": "#95FF00"
+              },
+              "$extensions": {
+                "somfy.darkPlaceholder": true
+              }
+            },
+            "onbold": {
+              "$type": "color",
+              "$value": {
+                "light": "#92A3AC",
+                "dark": "#95FF00"
+              },
+              "$extensions": {
+                "somfy.darkPlaceholder": true
+              }
+            }
+          },
+          "accent": {
+            "_base": {
+              "$type": "color",
+              "$value": {
+                "light": "#0D7F8C",
+                "dark": "#95FF00"
+              },
+              "$extensions": {
+                "somfy.darkPlaceholder": true
+              }
+            },
+            "onsoft": {
+              "$type": "color",
+              "$value": {
+                "light": "#95FF00",
+                "dark": "#95FF00"
+              },
+              "$extensions": {
+                "somfy.darkPlaceholder": true
+              }
+            }
+          },
+          "success": {
+            "_base": {
+              "$type": "color",
+              "$value": {
+                "light": "#08C27F",
+                "dark": "#95FF00"
+              },
+              "$extensions": {
+                "somfy.darkPlaceholder": true
+              }
+            },
+            "onsoft": {
+              "$type": "color",
+              "$value": {
+                "light": "#95FF00",
+                "dark": "#95FF00"
+              },
+              "$extensions": {
+                "somfy.darkPlaceholder": true
+              }
+            }
+          },
+          "warning": {
+            "_base": {
+              "$type": "color",
+              "$value": {
+                "light": "#95FF00",
+                "dark": "#95FF00"
+              },
+              "$extensions": {
+                "somfy.darkPlaceholder": true
+              }
+            },
+            "onsoft": {
+              "$type": "color",
+              "$value": {
+                "light": "#95FF00",
+                "dark": "#95FF00"
+              },
+              "$extensions": {
+                "somfy.darkPlaceholder": true
+              }
+            }
+          },
+          "error": {
+            "_base": {
+              "$type": "color",
+              "$value": {
+                "light": "#CC3800",
+                "dark": "#95FF00"
+              },
+              "$extensions": {
+                "somfy.darkPlaceholder": true
+              }
+            },
+            "onsoft": {
+              "$type": "color",
+              "$value": {
+                "light": "#95FF00",
+                "dark": "#95FF00"
+              },
+              "$extensions": {
+                "somfy.darkPlaceholder": true
+              }
+            }
+          },
+          "brand": {
+            "primary": {
+              "$type": "color",
+              "$value": {
+                "light": "#FAB800",
+                "dark": "#95FF00"
+              },
+              "$extensions": {
+                "somfy.darkPlaceholder": true
+              }
+            },
+            "primary-onsoft": {
+              "$type": "color",
+              "$value": {
+                "light": "#95FF00",
+                "dark": "#95FF00"
+              },
+              "$extensions": {
+                "somfy.darkPlaceholder": true
+              }
+            },
+            "secondary": {
+              "$type": "color",
+              "$value": {
+                "light": "#25485A",
+                "dark": "#95FF01"
+              }
+            },
+            "secondary-onsoft": {
+              "$type": "color",
+              "$value": {
+                "light": "#95FF00",
+                "dark": "#95FF02"
+              }
+            }
+          }
+        },
+        "border": {
+          "main": {
+            "$type": "color",
+            "$value": {
+              "light": "#CACFD5",
+              "dark": "#95FF00"
+            },
+            "$extensions": {
+              "somfy.darkPlaceholder": true
+            }
+          },
+          "bold": {
+            "$type": "color",
+            "$value": {
+              "light": "#667983",
+              "dark": "#95FF00"
+            },
+            "$extensions": {
+              "somfy.darkPlaceholder": true
+            }
+          },
+          "secondary": {
+            "$type": "color",
+            "$value": {
+              "light": "#E0E4E8",
+              "dark": "#95FF00"
+            },
+            "$extensions": {
+              "somfy.darkPlaceholder": true
+            }
+          },
+          "subtle": {
+            "$type": "color",
+            "$value": {
+              "light": "#8996A41A",
+              "dark": "#95FF00"
+            },
+            "$extensions": {
+              "somfy.darkPlaceholder": true
+            }
+          },
+          "accent": {
+            "_base": {
+              "$type": "color",
+              "$value": {
+                "light": "#12AABB",
+                "dark": "#95FF00"
+              },
+              "$extensions": {
+                "somfy.darkPlaceholder": true
+              }
+            },
+            "onbold": {
+              "$type": "color",
+              "$value": {
+                "light": "#AED9DE",
+                "dark": "#95FF01"
+              }
+            }
+          },
+          "brand": {
+            "primary": {
+              "$type": "color",
+              "$value": {
+                "light": "#FAB800",
+                "dark": "#95FF00"
+              },
+              "$extensions": {
+                "somfy.darkPlaceholder": true
+              }
+            }
+          },
+          "success": {
+            "$type": "color",
+            "$value": {
+              "light": "#08C27F",
+              "dark": "#95FF00"
+            },
+            "$extensions": {
+              "somfy.darkPlaceholder": true
+            }
+          },
+          "warning": {
+            "$type": "color",
+            "$value": {
+              "light": "#95FF00",
+              "dark": "#95FF00"
+            },
+            "$extensions": {
+              "somfy.darkPlaceholder": true
+            }
+          },
+          "error": {
+            "$type": "color",
+            "$value": {
+              "light": "#CC3800",
+              "dark": "#95FF00"
+            },
+            "$extensions": {
+              "somfy.darkPlaceholder": true
+            }
+          }
+        }
+      },
+      "spaces": {
+        "0": {
+          "$type": "dimension",
+          "$value": "0px"
+        },
+        "4": {
+          "$type": "dimension",
+          "$value": "4px"
+        },
+        "8": {
+          "$type": "dimension",
+          "$value": "8px"
+        },
+        "12": {
+          "$type": "dimension",
+          "$value": "12px"
+        },
+        "16": {
+          "$type": "dimension",
+          "$value": "16px"
+        },
+        "20": {
+          "$type": "dimension",
+          "$value": "20px"
+        },
+        "24": {
+          "$type": "dimension",
+          "$value": "24px"
+        },
+        "32": {
+          "$type": "dimension",
+          "$value": "32px"
+        },
+        "40": {
+          "$type": "dimension",
+          "$value": "40px"
+        },
+        "56": {
+          "$type": "dimension",
+          "$value": "56px"
+        },
+        "64": {
+          "$type": "dimension",
+          "$value": "64px"
+        },
+        "80": {
+          "$type": "dimension",
+          "$value": "80px"
+        }
+      },
+      "radius": {
+        "0": {
+          "$type": "dimension",
+          "$value": "0px"
+        },
+        "4": {
+          "$type": "dimension",
+          "$value": "4px"
+        },
+        "8": {
+          "$type": "dimension",
+          "$value": "8px"
+        },
+        "12": {
+          "$type": "dimension",
+          "$value": "12px"
+        },
+        "16": {
+          "$type": "dimension",
+          "$value": "16px"
+        },
+        "24": {
+          "$type": "dimension",
+          "$value": "24px"
+        },
+        "32": {
+          "$type": "dimension",
+          "$value": "32px"
+        },
+        "64": {
+          "$type": "dimension",
+          "$value": "64px"
+        }
+      },
+      "shadow": {
+        "100": {
+          "$type": "shadow",
+          "$value": {
+            "color": {
+              "light": "#1D1D1D",
+              "dark": "#95FF00"
+            },
+            "offsetX": "0px",
+            "offsetY": "2px",
+            "blur": "4px",
+            "spread": "0px",
+            "opacity": 0.15
+          },
+          "$extensions": {
+            "somfy.darkPlaceholder": true
+          }
+        },
+        "200": {
+          "$type": "shadow",
+          "$value": {
+            "color": {
+              "light": "#1D1D1D",
+              "dark": "#95FF00"
+            },
+            "offsetX": "0px",
+            "offsetY": "8px",
+            "blur": "16px",
+            "spread": "0px",
+            "opacity": 0.15
+          },
+          "$extensions": {
+            "somfy.darkPlaceholder": true
+          }
+        },
+        "footer": {
+          "$type": "shadow",
+          "$value": {
+            "color": {
+              "light": "#F27384E",
+              "dark": "#95FF00"
+            },
+            "offsetX": "0px",
+            "offsetY": "-4px",
+            "blur": "12px",
+            "spread": "0px",
+            "opacity": 0.15
+          },
+          "$extensions": {
+            "somfy.darkPlaceholder": true
+          }
+        }
+      },
+      "font": {
+        "family": {
+          "$type": "fontFamily",
+          "$value": [
+            "Somfy Sans"
+          ]
+        },
+        "weight": {
+          "light": {
+            "$type": "fontWeight",
+            "$value": 300
+          },
+          "regular": {
+            "$type": "fontWeight",
+            "$value": 500
+          },
+          "medium": {
+            "$type": "fontWeight",
+            "$value": 800
+          }
+        },
+        "size": {
+          "12": {
+            "$type": "dimension",
+            "$value": "12px"
+          },
+          "14": {
+            "$type": "dimension",
+            "$value": "14px"
+          },
+          "16": {
+            "$type": "dimension",
+            "$value": "16px"
+          },
+          "19": {
+            "$type": "dimension",
+            "$value": "19px"
+          },
+          "22": {
+            "$type": "dimension",
+            "$value": "22px"
+          },
+          "36": {
+            "$type": "dimension",
+            "$value": "36px"
+          }
+        },
+        "lineHeight": {
+          "120": {
+            "$type": "number",
+            "$value": 1.2
+          },
+          "125": {
+            "$type": "number",
+            "$value": 1.25
+          },
+          "135": {
+            "$type": "number",
+            "$value": 1.35
+          },
+          "150": {
+            "$type": "number",
+            "$value": 1.5
+          }
+        }
+      }
+    }
+  },
+  "semantic": {
+    "$description": "RESERVED — semantic tokens layer. To be populated."
+  },
+  "composite": {
+    "loop": {
+      "typography": {
+        "title-soft": {
+          "$type": "typography",
+          "$value": {
+            "fontFamily": "{primitives.loop.font.family}",
+            "fontWeight": "{primitives.loop.font.weight.light}",
+            "fontSize": "{primitives.loop.font.size.36}",
+            "lineHeight": "{primitives.loop.font.lineHeight.135}"
+          }
+        },
+        "title-bold": {
+          "$type": "typography",
+          "$value": {
+            "fontFamily": "{primitives.loop.font.family}",
+            "fontWeight": "{primitives.loop.font.weight.regular}",
+            "fontSize": "{primitives.loop.font.size.36}",
+            "lineHeight": "{primitives.loop.font.lineHeight.135}"
+          }
+        },
+        "subtitle": {
+          "$type": "typography",
+          "$value": {
+            "fontFamily": "{primitives.loop.font.family}",
+            "fontWeight": "{primitives.loop.font.weight.regular}",
+            "fontSize": "{primitives.loop.font.size.22}",
+            "lineHeight": "{primitives.loop.font.lineHeight.120}"
+          }
+        },
+        "heading": {
+          "$type": "typography",
+          "$value": {
+            "fontFamily": "{primitives.loop.font.family}",
+            "fontWeight": "{primitives.loop.font.weight.regular}",
+            "fontSize": "{primitives.loop.font.size.19}",
+            "lineHeight": "{primitives.loop.font.lineHeight.125}"
+          }
+        },
+        "body-soft": {
+          "$type": "typography",
+          "$value": {
+            "fontFamily": "{primitives.loop.font.family}",
+            "fontWeight": "{primitives.loop.font.weight.regular}",
+            "fontSize": "{primitives.loop.font.size.16}",
+            "lineHeight": "{primitives.loop.font.lineHeight.150}"
+          }
+        },
+        "body-bold": {
+          "$type": "typography",
+          "$value": {
+            "fontFamily": "{primitives.loop.font.family}",
+            "fontWeight": "{primitives.loop.font.weight.medium}",
+            "fontSize": "{primitives.loop.font.size.16}",
+            "lineHeight": "{primitives.loop.font.lineHeight.150}"
+          }
+        },
+        "description": {
+          "$type": "typography",
+          "$value": {
+            "fontFamily": "{primitives.loop.font.family}",
+            "fontWeight": "{primitives.loop.font.weight.regular}",
+            "fontSize": "{primitives.loop.font.size.14}",
+            "lineHeight": "{primitives.loop.font.lineHeight.125}"
+          }
+        },
+        "footnote": {
+          "$type": "typography",
+          "$value": {
+            "fontFamily": "{primitives.loop.font.family}",
+            "fontWeight": "{primitives.loop.font.weight.regular}",
+            "fontSize": "{primitives.loop.font.size.12}",
+            "lineHeight": "{primitives.loop.font.lineHeight.120}"
+          }
+        }
+      }
+    }
+  },
+  "component": {
+    "loop": {
+      "button": {
+        "primary": {
+          "background": {
+            "enabled": {
+              "$type": "color",
+              "$value": {
+                "light": "#FAB800",
+                "dark": "#95FF00"
+              },
+              "$extensions": {
+                "somfy.darkPlaceholder": true
+              }
+            },
+            "hover": {
+              "$type": "color",
+              "$value": {
+                "light": "",
+                "dark": ""
+              }
+            },
+            "pressed": {
+              "$type": "color",
+              "$value": {
+                "light": "",
+                "dark": ""
+              }
+            },
+            "disabled": {
+              "$type": "color",
+              "$value": {
+                "light": "",
+                "dark": ""
+              }
+            }
+          },
+          "content": {
+            "$type": "color",
+            "$value": {
+              "light": "",
+              "dark": ""
+            }
+          },
+          "radius": {
+            "$type": "dimension",
+            "$value": "12px"
+          }
+        }
+      }
+    }
+  }
+}
