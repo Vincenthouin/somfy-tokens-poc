@@ -8,7 +8,7 @@
           "main": {
             "$type": "color",
             "$value": {
-              "light": "#ff0000",
+              "light": "#FFFFFF",
               "dark": "#95FF00"
             },
             "$extensions": {
