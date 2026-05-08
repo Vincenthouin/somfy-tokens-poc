@@ -578,7 +578,7 @@
       "radius": {
         "0": {
           "$type": "dimension",
-          "$value": "2px"
+          "$value": "0px"
         },
         "4": {
           "$type": "dimension",
