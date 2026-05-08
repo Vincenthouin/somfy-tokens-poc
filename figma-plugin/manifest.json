@@ -1,0 +1,14 @@
+{
+  "name": "Somfy Token Sync",
+  "id": "somfy-token-sync",
+  "api": "1.0.0",
+  "main": "code.js",
+  "ui": "ui.html",
+  "editorType": ["figma"],
+  "networkAccess": {
+    "allowedDomains": ["https://api.github.com", "https://raw.githubusercontent.com"],
+    "reasoning": "Fetches design tokens JSON from GitHub repositories."
+  },
+  "documentAccess": "dynamic-page",
+  "permissions": ["currentuser"]
+}

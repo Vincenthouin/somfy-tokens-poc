@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  :root {
+    --bg: var(--figma-color-bg, #fff);
+    --bg-secondary: var(--figma-color-bg-secondary, #f5f5f5);
+    --text: var(--figma-color-text, #000);
+    --text-secondary: var(--figma-color-text-secondary, #666);
+    --border: var(--figma-color-border, #e5e5e5);
+    --accent: var(--figma-color-bg-brand, #0d99ff);
+    --accent-text: var(--figma-color-text-onbrand, #fff);
+    --success: #14ae5c;
+    --warning: #f5a623;
+    --danger: #e03131;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: 'Inter', -apple-system, sans-serif;
+    font-size: 12px;
+    background: var(--bg);
+    color: var(--text);
+  }
+  .app { display: flex; flex-direction: column; height: 100vh; }
+  .header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .title { font-weight: 600; font-size: 13px; }
+  .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); }
+  .tab {
+    padding: 10px 16px;
+    cursor: pointer;
+    color: var(--text-secondary);
+    border-bottom: 2px solid transparent;
+  }
+  .tab.active {
+    color: var(--text);
+    border-bottom-color: var(--accent);
+    font-weight: 500;
+  }
+  .content { flex: 1; overflow-y: auto; padding: 16px; }
+  .field { margin-bottom: 12px; }
+  label {
+    display: block;
+    font-weight: 500;
+    margin-bottom: 4px;
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+  input {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 12px;
+    font-family: inherit;
+  }
+  input:focus { outline: none; border-color: var(--accent); }
+  .row { display: flex; gap: 8px; }
+  .row .field { flex: 1; }
+  button {
+    padding: 8px 14px;
+    border: none;
+    border-radius: 4px;
+    background: var(--accent);
+    color: var(--accent-text);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 500;
+    font-family: inherit;
+  }
+  button.secondary { background: var(--bg-secondary); color: var(--text); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .actions { display: flex; gap: 8px; margin-top: 16px; }
+  .footer {
+    padding: 12px 16px;
+    border-top: 1px solid var(--border);
+    background: var(--bg-secondary);
+  }
+  .stats {
+    display: flex;
+    gap: 16px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+  }
+  .stat-num { font-weight: 600; color: var(--text); font-size: 14px; }
+  .stat-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .diff-list { display: flex; flex-direction: column; gap: 4px; }
+  .diff-item {
+    padding: 8px 10px;
+    border-radius: 4px;
+    background: var(--bg-secondary);
+    border-left: 3px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+  }
+  .diff-item.added { border-left-color: var(--success); }
+  .diff-item.modified { border-left-color: var(--warning); }
+  .diff-item.removed { border-left-color: var(--danger); }
+  .diff-kind {
+    font-size: 10px;
+    text-transform: uppercase;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 3px;
+    background: var(--bg);
+  }
+  .diff-path {
+    flex: 1;
+    font-family: 'SF Mono', monospace;
+    font-size: 10px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .empty {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-secondary);
+  }
+  .empty-icon { font-size: 32px; margin-bottom: 8px; }
+  .toast {
+    position: fixed;
+    bottom: 16px;
+    left: 16px;
+    right: 16px;
+    padding: 10px 14px;
+    border-radius: 6px;
+    font-size: 11px;
+    background: var(--text);
+    color: var(--bg);
+    transform: translateY(100px);
+    transition: transform 0.2s;
+  }
+  .toast.show { transform: translateY(0); }
+  .toast.error { background: var(--danger); color: white; }
+  .help {
+    font-size: 10px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+  }
+  .help a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="header">
+    <span class="title">Somfy Token Sync</span>
+    <span id="status" class="help"></span>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="sync">Sync</div>
+    <div class="tab" data-tab="config">Config</div>
+  </div>
+
+  <!-- SYNC TAB -->
+  <div class="content" id="tab-sync">
+    <div id="sync-empty" class="empty">
+      <div class="empty-icon">🔄</div>
+      <div>Click <b>Check for updates</b> to fetch the latest tokens from GitHub.</div>
+    </div>
+
+    <div id="sync-results" style="display:none;">
+      <div class="stats">
+        <div><div class="stat-num" id="stat-total">0</div><div class="stat-label">Total</div></div>
+        <div><div class="stat-num" id="stat-added" style="color:var(--success)">0</div><div class="stat-label">Added</div></div>
+        <div><div class="stat-num" id="stat-modified" style="color:var(--warning)">0</div><div class="stat-label">Modified</div></div>
+        <div><div class="stat-num" id="stat-removed" style="color:var(--danger)">0</div><div class="stat-label">Removed</div></div>
+        <div><div class="stat-num" id="stat-placeholder">0</div><div class="stat-label">Dark TODO</div></div>
+      </div>
+      <div class="diff-list" id="diff-list"></div>
+    </div>
+  </div>
+
+  <!-- CONFIG TAB -->
+  <div class="content" id="tab-config" style="display:none;">
+    <div class="field">
+      <label>GitHub Personal Access Token</label>
+      <input type="password" id="cfg-token" placeholder="github_pat_..." />
+      <div class="help">Fine-grained token, Contents: Read on the repo.</div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>Owner</label>
+        <input type="text" id="cfg-owner" placeholder="github-username-or-org" />
+      </div>
+      <div class="field">
+        <label>Repo</label>
+        <input type="text" id="cfg-repo" placeholder="repo-name" />
+      </div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>Branch</label>
+        <input type="text" id="cfg-branch" placeholder="main" value="main" />
+      </div>
+      <div class="field">
+        <label>File path</label>
+        <input type="text" id="cfg-path" placeholder="tokens/somfy-tokens.json" />
+      </div>
+    </div>
+    <div class="actions">
+      <button id="btn-save">Save config</button>
+      <button id="btn-test" class="secondary">Test connection</button>
+    </div>
+  </div>
+
+  <div class="footer">
+    <div class="actions">
+      <button id="btn-fetch">Check for updates</button>
+      <button id="btn-apply" class="secondary" disabled>Apply all</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  let currentConfig = {};
+
+  // ---------- Tabs ----------
+  document.querySelectorAll('.tab').forEach(t => {
+    t.onclick = () => {
+      document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+      const tab = t.dataset.tab;
+      $('tab-sync').style.display = tab === 'sync' ? 'block' : 'none';
+      $('tab-config').style.display = tab === 'config' ? 'block' : 'none';
+    };
+  });
+
+  // ---------- Toast ----------
+  function toast(msg, isError = false) {
+    const el = $('toast');
+    el.textContent = msg;
+    el.className = 'toast show' + (isError ? ' error' : '');
+    setTimeout(() => el.className = 'toast', 3000);
+  }
+
+  // ---------- Config ----------
+  $('btn-save').onclick = () => {
+    currentConfig = {
+      token: $('cfg-token').value.trim(),
+      owner: $('cfg-owner').value.trim(),
+      repo: $('cfg-repo').value.trim(),
+      branch: $('cfg-branch').value.trim() || 'main',
+      filePath: $('cfg-path').value.trim()
+    };
+    parent.postMessage({ pluginMessage: { type: 'save-config', config: currentConfig } }, '*');
+  };
+
+  $('btn-test').onclick = async () => {
+    const cfg = {
+      token: $('cfg-token').value.trim(),
+      owner: $('cfg-owner').value.trim(),
+      repo: $('cfg-repo').value.trim(),
+      branch: $('cfg-branch').value.trim() || 'main',
+      filePath: $('cfg-path').value.trim()
+    };
+    const ok = await fetchTokens(cfg, true);
+    if (ok) toast('✓ Connection successful');
+  };
+
+  // ---------- GitHub fetch ----------
+  async function fetchTokens(cfg, testOnly = false) {
+    if (!cfg.token || !cfg.owner || !cfg.repo || !cfg.filePath) {
+      toast('Fill all config fields first', true);
+      return false;
+    }
+    const url = `https://api.github.com/repos/${cfg.owner}/${cfg.repo}/contents/${cfg.filePath}?ref=${cfg.branch}`;
+    try {
+      const res = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${cfg.token}`,
+          'Accept': 'application/vnd.github.raw'
+        }
+      });
+      if (!res.ok) {
+        toast(`GitHub error ${res.status}: ${res.statusText}`, true);
+        return false;
+      }
+      const json = await res.json();
+      if (testOnly) return true;
+      parent.postMessage({ pluginMessage: { type: 'tokens-fetched', json } }, '*');
+      return true;
+    } catch (err) {
+      toast('Network error: ' + err.message, true);
+      return false;
+    }
+  }
+
+  $('btn-fetch').onclick = () => {
+    $('status').textContent = 'Fetching…';
+    fetchTokens(currentConfig);
+  };
+
+  $('btn-apply').onclick = () => {
+    $('status').textContent = 'Applying…';
+    parent.postMessage({ pluginMessage: { type: 'apply-tokens', selectedPaths: [] } }, '*');
+  };
+
+  // ---------- Render diffs ----------
+  function renderDiffs(diffs, totalTokens, placeholders) {
+    $('sync-empty').style.display = 'none';
+    $('sync-results').style.display = 'block';
+    $('stat-total').textContent = totalTokens;
+    $('stat-added').textContent = diffs.filter(d => d.kind === 'added').length;
+    $('stat-modified').textContent = diffs.filter(d => d.kind === 'modified').length;
+    $('stat-removed').textContent = diffs.filter(d => d.kind === 'removed').length;
+    $('stat-placeholder').textContent = placeholders;
+
+    const list = $('diff-list');
+    list.innerHTML = '';
+    if (diffs.length === 0) {
+      list.innerHTML = '<div class="empty"><div class="empty-icon">✓</div>Everything is up to date.</div>';
+      $('btn-apply').disabled = true;
+    } else {
+      diffs.slice(0, 200).forEach(d => {
+        const el = document.createElement('div');
+        el.className = 'diff-item ' + d.kind;
+        el.innerHTML = `
+          <span class="diff-kind">${d.kind}</span>
+          <span class="diff-path" title="${d.path}">${d.path}</span>
+        `;
+        list.appendChild(el);
+      });
+      if (diffs.length > 200) {
+        const more = document.createElement('div');
+        more.className = 'help';
+        more.style.padding = '8px';
+        more.textContent = `+ ${diffs.length - 200} more diffs (will all be applied)`;
+        list.appendChild(more);
+      }
+      $('btn-apply').disabled = false;
+    }
+    $('status').textContent = '';
+  }
+
+  // ---------- Plugin → UI messages ----------
+  window.onmessage = (event) => {
+    const msg = event.data.pluginMessage;
+    if (!msg) return;
+    if (msg.type === 'config-loaded') {
+      currentConfig = msg.config;
+      $('cfg-token').value = msg.config.token || '';
+      $('cfg-owner').value = msg.config.owner || '';
+      $('cfg-repo').value = msg.config.repo || '';
+      $('cfg-branch').value = msg.config.branch || 'main';
+      $('cfg-path').value = msg.config.filePath || '';
+    } else if (msg.type === 'config-saved') {
+      toast('✓ Config saved');
+    } else if (msg.type === 'diffs-computed') {
+      renderDiffs(msg.diffs, msg.totalTokens, msg.placeholders);
+    } else if (msg.type === 'progress') {
+      $('status').textContent = msg.message;
+    } else if (msg.type === 'apply-done') {
+      $('status').textContent = '';
+      const skipped = msg.skipped ? ` (${msg.skipped} skipped)` : '';
+      toast(`✓ Applied ${msg.count} tokens${skipped}`);
+      if (msg.errors && msg.errors.length > 0) {
+        console.error('Apply errors:', msg.errors);
+        const errMsg = 'First errors:\n' + msg.errors.join('\n');
+        setTimeout(() => alert(errMsg), 100);
+      }
+      // Refresh diffs
+      setTimeout(() => fetchTokens(currentConfig), 500);
+    } else if (msg.type === 'error') {
+      toast(msg.message, true);
+      $('status').textContent = '';
+    }
+  };
+
+  // ---------- Init ----------
+  parent.postMessage({ pluginMessage: { type: 'load-config' } }, '*');
+</script>
+</body>
+</html>

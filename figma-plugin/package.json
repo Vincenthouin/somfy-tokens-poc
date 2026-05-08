@@ -1,0 +1,13 @@
+{
+  "name": "somfy-token-sync",
+  "version": "0.1.0",
+  "description": "Figma plugin to sync design tokens from GitHub (W3C format)",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch"
+  },
+  "devDependencies": {
+    "@figma/plugin-typings": "^1.100.0",
+    "typescript": "^5.4.0"
+  }
+}
