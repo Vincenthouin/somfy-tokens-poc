@@ -552,12 +552,31 @@ figma.ui.onmessage = async (msg) => {
   try {
     if (msg.type === "load-config") {
       const config = await loadConfig();
-      figma.ui.postMessage({ type: "config-loaded", config });
+      const lastSyncedSha = await figma.clientStorage.getAsync("lastSyncedSha");
+      const pollInterval = await figma.clientStorage.getAsync("pollInterval");
+      // Détecte si une collection Somfy existe déjà (= sync précédent)
+      const collections = await figma.variables.getLocalVariableCollectionsAsync();
+      const hasExistingCollection = collections.some(c => c.name === "Somfy Tokens");
+      figma.ui.postMessage({
+        type: "config-loaded",
+        config,
+        lastSyncedSha,
+        hasExistingCollection,
+        pollInterval
+      });
     }
 
     else if (msg.type === "save-config") {
       await saveConfig(msg.config);
       figma.ui.postMessage({ type: "config-saved" });
+    }
+
+    else if (msg.type === "save-synced-sha") {
+      await figma.clientStorage.setAsync("lastSyncedSha", msg.sha);
+    }
+
+    else if (msg.type === "save-poll-interval") {
+      await figma.clientStorage.setAsync("pollInterval", msg.interval);
     }
 
     else if (msg.type === "tokens-fetched") {
