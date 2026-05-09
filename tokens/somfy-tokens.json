@@ -8,7 +8,7 @@
           "main": {
             "$type": "color",
             "$value": {
-              "light": "#007bff",
+              "light": "#FFFFFF",
               "dark": "#95FF00"
             },
             "$extensions": {
@@ -578,7 +578,7 @@
       "radius": {
         "0": {
           "$type": "dimension",
-          "$value": "2px"
+          "$value": "0px"
         },
         "4": {
           "$type": "dimension",
