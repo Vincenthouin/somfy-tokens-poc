@@ -6,14 +6,26 @@
   :root {
     --bg: var(--figma-color-bg, #fff);
     --bg-secondary: var(--figma-color-bg-secondary, #f5f5f5);
+    --bg-tertiary: var(--figma-color-bg-tertiary, #e6e6e6);
     --text: var(--figma-color-text, #000);
     --text-secondary: var(--figma-color-text-secondary, #666);
-    --border: var(--figma-color-border, #e5e5e5);
+    --text-tertiary: var(--figma-color-text-tertiary, #999);
+    --border: var(--figma-color-border, rgba(0,0,0,0.08));
+    --border-strong: var(--figma-color-border-strong, rgba(0,0,0,0.15));
     --accent: var(--figma-color-bg-brand, #0d99ff);
     --accent-text: var(--figma-color-text-onbrand, #fff);
     --success: #14ae5c;
+    --success-bg: rgba(20,174,92,0.1);
+    --success-border: rgba(20,174,92,0.25);
     --warning: #f5a623;
+    --warning-bg: rgba(245,166,35,0.1);
+    --warning-border: rgba(245,166,35,0.25);
     --danger: #e03131;
+    --danger-bg: rgba(224,49,49,0.1);
+    --danger-border: rgba(224,49,49,0.25);
+    --info: #3b82f6;
+    --info-bg: rgba(59,130,246,0.08);
+    --info-border: rgba(59,130,246,0.25);
   }
   * { box-sizing: border-box; }
   body {
@@ -22,117 +34,412 @@
     font-size: 12px;
     background: var(--bg);
     color: var(--text);
+    -webkit-font-smoothing: antialiased;
   }
   .app { display: flex; flex-direction: column; height: 100vh; }
-  .header {
-    padding: 12px 16px;
-    border-bottom: 1px solid var(--border);
+
+  .tabs-row {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    padding: 0 16px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
   }
-  .title { font-weight: 600; font-size: 13px; }
-  .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); }
+  .tabs { display: flex; flex: 1; gap: 0; }
   .tab {
-    padding: 10px 16px;
+    padding: 12px 0;
+    margin-right: 20px;
     cursor: pointer;
     color: var(--text-secondary);
-    border-bottom: 2px solid transparent;
-  }
-  .tab.active {
-    color: var(--text);
-    border-bottom-color: var(--accent);
-    font-weight: 500;
-  }
-  .content { flex: 1; overflow-y: auto; padding: 16px; }
-  .field { margin-bottom: 12px; }
-  label {
-    display: block;
-    font-weight: 500;
-    margin-bottom: 4px;
-    font-size: 11px;
-    color: var(--text-secondary);
-  }
-  input {
-    width: 100%;
-    padding: 8px 10px;
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    background: var(--bg);
-    color: var(--text);
     font-size: 12px;
-    font-family: inherit;
-  }
-  input:focus { outline: none; border-color: var(--accent); }
-  .row { display: flex; gap: 8px; }
-  .row .field { flex: 1; }
-  button {
-    padding: 8px 14px;
+    font-weight: 500;
+    position: relative;
+    background: transparent;
     border: none;
-    border-radius: 4px;
-    background: var(--accent);
-    color: var(--accent-text);
-    cursor: pointer;
-    font-size: 12px;
-    font-weight: 500;
     font-family: inherit;
   }
-  button.secondary { background: var(--bg-secondary); color: var(--text); }
-  button:disabled { opacity: 0.5; cursor: not-allowed; }
-  .actions { display: flex; gap: 8px; margin-top: 16px; }
-  .footer {
-    padding: 12px 16px;
-    border-top: 1px solid var(--border);
-    background: var(--bg-secondary);
+  .tab.active { color: var(--text); }
+  .tab.active::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: var(--text);
   }
-  .stats {
+  .auto-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 8px;
+    background: var(--success-bg);
+    border: 1px solid var(--success-border);
+    border-radius: 100px;
+    font-size: 10px;
+    color: var(--success);
+    font-weight: 500;
+  }
+  .auto-pill .dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--success);
+  }
+  .auto-pill.off {
+    background: var(--bg-secondary);
+    border-color: var(--border);
+    color: var(--text-tertiary);
+  }
+  .auto-pill.off .dot { background: var(--text-tertiary); }
+
+  .update-banner {
+    display: none;
+    margin: 12px 16px 0;
+    padding: 10px 12px;
+    background: var(--info-bg);
+    border: 1px solid var(--info-border);
+    border-radius: 6px;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+  .update-banner.show { display: flex; }
+  .update-banner .banner-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    background: rgba(59,130,246,0.15);
     display: flex;
-    gap: 16px;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .update-banner .banner-msg { flex: 1; min-width: 0; }
+  .update-banner .banner-title {
     font-size: 11px;
+    font-weight: 500;
+    color: var(--text);
+  }
+  .update-banner .banner-sub {
+    font-size: 10px;
     color: var(--text-secondary);
+    margin-top: 1px;
+  }
+  .update-banner button {
+    background: var(--text);
+    color: var(--bg);
+    border: none;
+    padding: 5px 10px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .update-banner button.dismiss {
+    background: transparent;
+    color: var(--text-secondary);
+    padding: 4px 6px;
+  }
+
+  .content { flex: 1; overflow-y: auto; padding: 16px; }
+
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+    margin-bottom: 16px;
+  }
+  .stat-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px;
+  }
+  .stat-card.added { background: var(--success-bg); border-color: var(--success-border); }
+  .stat-card.modified { background: var(--warning-bg); border-color: var(--warning-border); }
+  .stat-card.removed { background: var(--danger-bg); border-color: var(--danger-border); }
+  .stat-num {
+    font-size: 18px;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+    color: var(--text);
+  }
+  .stat-card.added .stat-num { color: var(--success); }
+  .stat-card.modified .stat-num { color: var(--warning); }
+  .stat-card.removed .stat-num { color: var(--danger); }
+  .stat-label {
+    font-size: 9px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-top: 3px;
+    font-weight: 500;
+  }
+
+  .filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
     margin-bottom: 12px;
   }
-  .stat-num { font-weight: 600; color: var(--text); font-size: 14px; }
-  .stat-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
-  .diff-list { display: flex; flex-direction: column; gap: 4px; }
-  .diff-item {
-    padding: 8px 10px;
-    border-radius: 4px;
+  .filter-pill {
+    padding: 4px 10px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 100px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-family: inherit;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: background 0.1s, color 0.1s, border-color 0.1s;
+  }
+  .filter-pill:hover:not(:disabled):not(.active) {
+    border-color: var(--border-strong);
+    color: var(--text);
+  }
+  .filter-pill.active {
+    background: var(--text);
+    border-color: var(--text);
+    color: var(--bg);
+    font-weight: 500;
+  }
+  .filter-pill .pill-count {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 100px;
     background: var(--bg-secondary);
-    border-left: 3px solid var(--border);
+    color: var(--text-secondary);
+    font-weight: 500;
+    min-width: 16px;
+    text-align: center;
+  }
+  .filter-pill.active .pill-count {
+    background: rgba(255,255,255,0.2);
+    color: var(--bg);
+  }
+  .filter-pill:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .diff-list { display: flex; flex-direction: column; gap: 4px; }
+  .diff-row {
     display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: 11px;
+    gap: 10px;
+    padding: 8px 10px;
+    background: var(--bg-secondary);
+    border-radius: 6px;
+    border: 1px solid transparent;
+    transition: background 0.1s;
   }
-  .diff-item.added { border-left-color: var(--success); }
-  .diff-item.modified { border-left-color: var(--warning); }
-  .diff-item.removed { border-left-color: var(--danger); }
-  .diff-kind {
+  .diff-row:hover { background: var(--bg-tertiary); }
+  .diff-row .accent {
+    width: 3px;
+    height: 16px;
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+  .diff-row.added .accent { background: var(--success); }
+  .diff-row.modified .accent { background: var(--warning); }
+  .diff-row.removed { opacity: 0.7; }
+  .diff-row.removed .accent { background: var(--danger); }
+  .diff-swatch {
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    flex-shrink: 0;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
     font-size: 10px;
-    text-transform: uppercase;
-    font-weight: 600;
-    padding: 2px 6px;
-    border-radius: 3px;
-    background: var(--bg);
+    font-weight: 700;
+    color: var(--text-secondary);
+    overflow: hidden;
+    position: relative;
   }
-  .diff-path {
+  .diff-swatch.color { border: 1px solid rgba(0,0,0,0.1); }
+  .diff-swatch.split { background: transparent; border: none; display: flex; padding: 0; gap: 1px; }
+  .diff-swatch.split .half {
     flex: 1;
-    font-family: 'SF Mono', monospace;
-    font-size: 10px;
+    height: 100%;
+    border: 1px solid rgba(0,0,0,0.1);
+  }
+  .diff-swatch.split .half:first-child { border-radius: 3px 0 0 3px; }
+  .diff-swatch.split .half:last-child { border-radius: 0 3px 3px 0; }
+  .diff-swatch.shadow { background: var(--bg); box-shadow: 0 2px 4px rgba(0,0,0,0.15); }
+  .diff-swatch.removed-color::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to top right, transparent calc(50% - 0.5px), rgba(0,0,0,0.4) calc(50% - 0.5px), rgba(0,0,0,0.4) calc(50% + 0.5px), transparent calc(50% + 0.5px));
+  }
+  .diff-info { flex: 1; min-width: 0; }
+  .diff-path {
+    font-size: 11px;
+    color: var(--text);
+    font-family: 'SF Mono', Menlo, monospace;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .diff-row.removed .diff-path {
+    text-decoration: line-through;
+    color: var(--text-secondary);
+  }
+  .diff-meta {
+    font-size: 10px;
+    color: var(--text-secondary);
+    margin-top: 1px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .diff-meta .strike { text-decoration: line-through; opacity: 0.6; }
+  .diff-meta .mono { font-family: 'SF Mono', Menlo, monospace; }
+  .diff-badge {
+    font-size: 9px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    flex-shrink: 0;
+  }
+  .diff-row.added .diff-badge { color: var(--success); background: var(--success-bg); }
+  .diff-row.modified .diff-badge { color: var(--warning); background: var(--warning-bg); }
+  .diff-row.removed .diff-badge { color: var(--danger); background: var(--danger-bg); }
+
   .empty {
     text-align: center;
     padding: 40px 20px;
     color: var(--text-secondary);
   }
-  .empty-icon { font-size: 32px; margin-bottom: 8px; }
+  .empty-icon { font-size: 28px; margin-bottom: 8px; opacity: 0.6; }
+
+  .section-label {
+    font-size: 10px;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 12px;
+    font-weight: 600;
+  }
+  .section-divider {
+    border-top: 1px solid var(--border);
+    margin-top: 20px;
+    padding-top: 16px;
+  }
+  .field { margin-bottom: 14px; }
+  label {
+    display: block;
+    font-size: 10px;
+    color: var(--text-secondary);
+    margin-bottom: 5px;
+    font-weight: 500;
+  }
+  input, select {
+    width: 100%;
+    padding: 7px 9px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    background: var(--bg-secondary);
+    color: var(--text);
+    font-size: 11px;
+    font-family: inherit;
+  }
+  input:focus, select:focus { outline: none; border-color: var(--accent); }
+  input.mono { font-family: 'SF Mono', Menlo, monospace; }
+  .row { display: flex; gap: 8px; }
+  .row .field { flex: 1; }
+
+  .poll-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 4px;
+  }
+  .poll-btn {
+    padding: 8px 0;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text-secondary);
+    font-size: 11px;
+    cursor: pointer;
+    font-family: inherit;
+    text-align: center;
+  }
+  .poll-btn:hover { border-color: var(--border-strong); color: var(--text); }
+  .poll-btn.active {
+    background: var(--text);
+    border-color: var(--text);
+    color: var(--bg);
+    font-weight: 500;
+  }
+  .help {
+    font-size: 10px;
+    color: var(--text-tertiary);
+    margin-top: 6px;
+    line-height: 1.5;
+  }
+
+  button { border: none; cursor: pointer; font-family: inherit; }
+  .btn-primary {
+    padding: 7px 14px;
+    background: var(--text);
+    color: var(--bg);
+    border-radius: 5px;
+    font-size: 11px;
+    font-weight: 500;
+  }
+  .btn-secondary {
+    padding: 7px 12px;
+    background: transparent;
+    border: 1px solid var(--border-strong);
+    color: var(--text);
+    border-radius: 5px;
+    font-size: 11px;
+    font-weight: 500;
+  }
+  .btn-secondary:hover { background: var(--bg-secondary); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .actions { display: flex; gap: 8px; }
+
+  .footer {
+    border-top: 1px solid var(--border);
+    padding: 10px 16px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    background: var(--bg);
+  }
+  .repo-info {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10px;
+    color: var(--text-secondary);
+    min-width: 0;
+    overflow: hidden;
+    flex: 1;
+  }
+  .repo-info .repo-path {
+    font-family: 'SF Mono', Menlo, monospace;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .toast {
     position: fixed;
-    bottom: 16px;
+    bottom: 60px;
     left: 16px;
     right: 16px;
     padding: 10px 14px;
@@ -141,101 +448,87 @@
     background: var(--text);
     color: var(--bg);
     transform: translateY(100px);
-    transition: transform 0.2s;
+    opacity: 0;
+    transition: transform 0.2s, opacity 0.2s;
+    z-index: 100;
   }
-  .toast.show { transform: translateY(0); }
+  .toast.show { transform: translateY(0); opacity: 1; }
   .toast.error { background: var(--danger); color: white; }
-  .help {
-    font-size: 10px;
-    color: var(--text-secondary);
-    margin-top: 4px;
-  }
-  .help a { color: var(--accent); }
-  .update-banner {
-    display: none;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
-    margin: 12px 16px 0;
-    border-radius: 6px;
-    background: var(--accent);
-    color: var(--accent-text);
-    font-size: 11px;
-  }
-  .update-banner.show { display: flex; }
-  .update-banner .banner-msg { flex: 1; }
-  .update-banner button {
-    padding: 4px 10px;
-    font-size: 11px;
-    background: rgba(255,255,255,0.2);
-    color: var(--accent-text);
-  }
-  .update-banner button.dismiss {
-    background: transparent;
-    padding: 4px 6px;
-  }
-  .auto-indicator {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 10px;
-    color: var(--text-secondary);
-  }
-  .auto-indicator .dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--success);
-  }
+
+  #status { font-size: 10px; color: var(--text-tertiary); }
 </style>
 </head>
 <body>
 <div class="app">
-  <div class="header">
-    <span class="title">Somfy Token Sync</span>
-    <span class="auto-indicator" id="auto-indicator" style="display:none;">
-      <span class="dot"></span><span>Auto</span>
-    </span>
-    <span id="status" class="help"></span>
-  </div>
 
-  <div class="tabs">
-    <div class="tab active" data-tab="sync">Sync</div>
-    <div class="tab" data-tab="config">Config</div>
+  <div class="tabs-row">
+    <div class="tabs">
+      <button class="tab active" data-tab="sync">Sync</button>
+      <button class="tab" data-tab="config">Config</button>
+    </div>
+    <span class="auto-pill" id="auto-pill" style="display:none;">
+      <span class="dot"></span><span id="auto-pill-label">Auto · 60s</span>
+    </span>
   </div>
 
   <div id="update-banner" class="update-banner">
-    <span>🔄</span>
-    <span class="banner-msg">New version available on GitHub</span>
-    <button id="banner-sync">Sync now</button>
+    <div class="banner-icon">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+    </div>
+    <div class="banner-msg">
+      <div class="banner-title">New version available</div>
+      <div class="banner-sub">Pulled from GitHub a moment ago</div>
+    </div>
+    <button id="banner-sync">Review</button>
     <button id="banner-dismiss" class="dismiss">✕</button>
   </div>
 
-  <!-- SYNC TAB -->
   <div class="content" id="tab-sync">
     <div id="sync-empty" class="empty">
-      <div class="empty-icon">🔄</div>
-      <div>Click <b>Check for updates</b> to fetch the latest tokens from GitHub.</div>
+      <div class="empty-icon">⟳</div>
+      <div>Click <b>Check</b> to fetch the latest tokens from GitHub.</div>
     </div>
 
     <div id="sync-results" style="display:none;">
-      <div class="stats">
-        <div><div class="stat-num" id="stat-total">0</div><div class="stat-label">Total</div></div>
-        <div><div class="stat-num" id="stat-added" style="color:var(--success)">0</div><div class="stat-label">Added</div></div>
-        <div><div class="stat-num" id="stat-modified" style="color:var(--warning)">0</div><div class="stat-label">Modified</div></div>
-        <div><div class="stat-num" id="stat-removed" style="color:var(--danger)">0</div><div class="stat-label">Removed</div></div>
-        <div><div class="stat-num" id="stat-placeholder">0</div><div class="stat-label">Dark TODO</div></div>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-num" id="stat-total">0</div>
+          <div class="stat-label">Total</div>
+        </div>
+        <div class="stat-card added">
+          <div class="stat-num" id="stat-added">0</div>
+          <div class="stat-label">Added</div>
+        </div>
+        <div class="stat-card modified">
+          <div class="stat-num" id="stat-modified">0</div>
+          <div class="stat-label">Changed</div>
+        </div>
+        <div class="stat-card removed">
+          <div class="stat-num" id="stat-removed">0</div>
+          <div class="stat-label">Removed</div>
+        </div>
       </div>
+
+      <div class="filter-bar" id="filter-bar">
+        <button class="filter-pill active" data-cat="all">All <span class="pill-count" id="pc-all">0</span></button>
+        <button class="filter-pill" data-cat="color">Color <span class="pill-count" id="pc-color">0</span></button>
+        <button class="filter-pill" data-cat="spacing">Spacing <span class="pill-count" id="pc-spacing">0</span></button>
+        <button class="filter-pill" data-cat="radius">Radius <span class="pill-count" id="pc-radius">0</span></button>
+        <button class="filter-pill" data-cat="shadow">Shadow <span class="pill-count" id="pc-shadow">0</span></button>
+        <button class="filter-pill" data-cat="font">Font <span class="pill-count" id="pc-font">0</span></button>
+      </div>
+
       <div class="diff-list" id="diff-list"></div>
     </div>
   </div>
 
-  <!-- CONFIG TAB -->
   <div class="content" id="tab-config" style="display:none;">
+    <div class="section-label">GitHub connection</div>
+
     <div class="field">
-      <label>GitHub Personal Access Token</label>
-      <input type="password" id="cfg-token" placeholder="github_pat_..." />
-      <div class="help">Fine-grained token, Contents: Read on the repo.</div>
+      <label>Personal Access Token</label>
+      <input type="password" id="cfg-token" class="mono" placeholder="github_pat_..." />
+      <div class="help">Fine-grained token with Contents: Read on the repo.</div>
     </div>
     <div class="row">
       <div class="field">
@@ -254,30 +547,33 @@
       </div>
       <div class="field">
         <label>File path</label>
-        <input type="text" id="cfg-path" placeholder="tokens/somfy-tokens.json" />
+        <input type="text" id="cfg-path" class="mono" placeholder="tokens/somfy-tokens.json" />
       </div>
     </div>
-    <div class="actions">
-      <button id="btn-save">Save config</button>
-      <button id="btn-test" class="secondary">Test connection</button>
+    <div class="actions" style="margin-top: 14px;">
+      <button id="btn-save" class="btn-primary">Save config</button>
+      <button id="btn-test" class="btn-secondary">Test connection</button>
     </div>
 
-    <div class="field" style="margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border);">
-      <label>Auto-check for updates</label>
-      <select id="cfg-poll" style="width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:4px; background:var(--bg); color:var(--text); font-size:12px; font-family:inherit;">
-        <option value="30000">Every 30 seconds</option>
-        <option value="60000" selected>Every 60 seconds</option>
-        <option value="300000">Every 5 minutes</option>
-        <option value="0">Off</option>
-      </select>
-      <div class="help">How often to check GitHub for new versions of the tokens file.</div>
+    <div class="section-divider section-label">Auto-check</div>
+    <div class="poll-grid">
+      <button class="poll-btn" data-interval="30000">30s</button>
+      <button class="poll-btn active" data-interval="60000">60s</button>
+      <button class="poll-btn" data-interval="300000">5min</button>
+      <button class="poll-btn" data-interval="0">Off</button>
     </div>
+    <div class="help">Plugin checks GitHub for new versions of the token file at this interval.</div>
   </div>
 
   <div class="footer">
+    <div class="repo-info">
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.4 0 0 5.4 0 12c0 5.3 3.4 9.8 8.2 11.4.6.1.8-.3.8-.6v-2c-3.3.7-4-1.6-4-1.6-.6-1.4-1.4-1.8-1.4-1.8-1.1-.7.1-.7.1-.7 1.2.1 1.9 1.2 1.9 1.2 1.1 1.9 2.9 1.4 3.6 1 .1-.8.4-1.4.8-1.7-2.7-.3-5.5-1.3-5.5-6 0-1.3.5-2.4 1.2-3.2-.1-.3-.5-1.5.1-3.2 0 0 1-.3 3.3 1.2 1-.3 2-.4 3-.4s2 .1 3 .4c2.3-1.5 3.3-1.2 3.3-1.2.7 1.7.2 2.9.1 3.2.8.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.5 5.9.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6C20.6 21.8 24 17.3 24 12c0-6.6-5.4-12-12-12z"/></svg>
+      <span class="repo-path" id="repo-path">—</span>
+      <span id="status"></span>
+    </div>
     <div class="actions">
-      <button id="btn-fetch">Check for updates</button>
-      <button id="btn-apply" class="secondary" disabled>Apply all</button>
+      <button id="btn-fetch" class="btn-secondary">Check</button>
+      <button id="btn-apply" class="btn-primary" disabled>Apply</button>
     </div>
   </div>
 </div>
@@ -287,8 +583,9 @@
 <script>
   const $ = (id) => document.getElementById(id);
   let currentConfig = {};
+  let currentDiffs = [];
+  let currentFilter = 'all';
 
-  // ---------- Tabs ----------
   document.querySelectorAll('.tab').forEach(t => {
     t.onclick = () => {
       document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
@@ -296,10 +593,10 @@
       const tab = t.dataset.tab;
       $('tab-sync').style.display = tab === 'sync' ? 'block' : 'none';
       $('tab-config').style.display = tab === 'config' ? 'block' : 'none';
+      if (tab === 'sync') pollOnce();
     };
   });
 
-  // ---------- Toast ----------
   function toast(msg, isError = false) {
     const el = $('toast');
     el.textContent = msg;
@@ -307,7 +604,14 @@
     setTimeout(() => el.className = 'toast', 3000);
   }
 
-  // ---------- Config ----------
+  function updateRepoDisplay() {
+    if (currentConfig.owner && currentConfig.repo) {
+      $('repo-path').textContent = `${currentConfig.owner}/${currentConfig.repo}`;
+    } else {
+      $('repo-path').textContent = 'No repo configured';
+    }
+  }
+
   $('btn-save').onclick = () => {
     currentConfig = {
       token: $('cfg-token').value.trim(),
@@ -316,6 +620,7 @@
       branch: $('cfg-branch').value.trim() || 'main',
       filePath: $('cfg-path').value.trim()
     };
+    updateRepoDisplay();
     parent.postMessage({ pluginMessage: { type: 'save-config', config: currentConfig } }, '*');
   };
 
@@ -331,7 +636,6 @@
     if (ok) toast('✓ Connection successful');
   };
 
-  // ---------- GitHub fetch ----------
   async function fetchTokens(cfg, testOnly = false) {
     if (!cfg.token || !cfg.owner || !cfg.repo || !cfg.filePath) {
       toast('Fill all config fields first', true);
@@ -360,7 +664,7 @@
   }
 
   $('btn-fetch').onclick = async () => {
-    $('status').textContent = 'Fetching…';
+    $('status').textContent = ' · Fetching…';
     isBusy = true;
     toggleBanner(false);
     await fetchTokens(currentConfig);
@@ -370,103 +674,226 @@
   };
 
   $('btn-apply').onclick = () => {
-    $('status').textContent = 'Applying…';
+    $('status').textContent = ' · Applying…';
     parent.postMessage({ pluginMessage: { type: 'apply-tokens', selectedPaths: [] } }, '*');
   };
 
-  // ---------- Render diffs ----------
+  function categorizeDiff(path) {
+    if (!path) return 'other';
+    const p = path.toLowerCase();
+    if (/(^|\.)color(\.|$)|background|foreground|border|stroke|fill|surface/.test(p)) return 'color';
+    if (/(^|\.)spacing(\.|$)|padding|margin|gap|space/.test(p)) return 'spacing';
+    if (/(^|\.)radius(\.|$)|corner|rounded/.test(p)) return 'radius';
+    if (/(^|\.)shadow(\.|$)|elevation|blur/.test(p)) return 'shadow';
+    if (/(^|\.)font(\.|$)|typography|text|line\.?height|letter\.?spacing|weight|family/.test(p)) return 'font';
+    return 'other';
+  }
+
+  function extractHex(value) {
+    if (!value) return null;
+    if (typeof value === 'string') {
+      const m = value.match(/#[0-9a-fA-F]{3,8}/);
+      return m ? m[0] : null;
+    }
+    if (typeof value === 'object') {
+      if (value.value) return extractHex(value.value);
+    }
+    return null;
+  }
+
+  function extractColorModes(value) {
+    if (!value || typeof value !== 'object') return null;
+    const light = value.Light || value.light;
+    const dark = value.Dark || value.dark;
+    if (light || dark) return { light: extractHex(light) || '#888', dark: extractHex(dark) || '#222' };
+    return null;
+  }
+
   function renderDiffs(diffs, totalTokens, placeholders) {
+    currentDiffs = diffs || [];
     $('sync-empty').style.display = 'none';
     $('sync-results').style.display = 'block';
     $('stat-total').textContent = totalTokens;
-    $('stat-added').textContent = diffs.filter(d => d.kind === 'added').length;
-    $('stat-modified').textContent = diffs.filter(d => d.kind === 'modified').length;
-    $('stat-removed').textContent = diffs.filter(d => d.kind === 'removed').length;
-    $('stat-placeholder').textContent = placeholders;
+    $('stat-added').textContent = currentDiffs.filter(d => d.kind === 'added').length;
+    $('stat-modified').textContent = currentDiffs.filter(d => d.kind === 'modified').length;
+    $('stat-removed').textContent = currentDiffs.filter(d => d.kind === 'removed').length;
 
-    const list = $('diff-list');
-    list.innerHTML = '';
-    if (diffs.length === 0) {
-      list.innerHTML = '<div class="empty"><div class="empty-icon">✓</div>Everything is up to date.</div>';
-      $('btn-apply').disabled = true;
-    } else {
-      diffs.slice(0, 200).forEach(d => {
-        const el = document.createElement('div');
-        el.className = 'diff-item ' + d.kind;
-        el.innerHTML = `
-          <span class="diff-kind">${d.kind}</span>
-          <span class="diff-path" title="${d.path}">${d.path}</span>
-        `;
-        list.appendChild(el);
-      });
-      if (diffs.length > 200) {
-        const more = document.createElement('div');
-        more.className = 'help';
-        more.style.padding = '8px';
-        more.textContent = `+ ${diffs.length - 200} more diffs (will all be applied)`;
-        list.appendChild(more);
+    const counts = { all: currentDiffs.length, color: 0, spacing: 0, radius: 0, shadow: 0, font: 0, other: 0 };
+    currentDiffs.forEach(d => {
+      const cat = categorizeDiff(d.path);
+      counts[cat] = (counts[cat] || 0) + 1;
+    });
+    ['all','color','spacing','radius','shadow','font'].forEach(cat => {
+      const el = document.getElementById('pc-' + cat);
+      if (el) el.textContent = counts[cat] || 0;
+      const pill = document.querySelector(`.filter-pill[data-cat="${cat}"]`);
+      if (pill && cat !== 'all') {
+        pill.disabled = (counts[cat] || 0) === 0;
+        if (pill.disabled && pill.classList.contains('active')) {
+          pill.classList.remove('active');
+          document.querySelector('.filter-pill[data-cat="all"]').classList.add('active');
+          currentFilter = 'all';
+        }
       }
-      $('btn-apply').disabled = false;
-    }
+    });
+
+    renderFilteredList();
+    $('btn-apply').disabled = currentDiffs.length === 0;
+    $('btn-apply').textContent = currentDiffs.length > 0 ? `Apply ${currentDiffs.length}` : 'Apply';
     $('status').textContent = '';
   }
 
-  // ---------- Plugin → UI messages ----------
-  window.onmessage = (event) => {
-    const msg = event.data.pluginMessage;
-    if (!msg) return;
-    if (msg.type === 'config-loaded') {
-      currentConfig = msg.config;
-      lastSyncedSha = msg.lastSyncedSha || null;
-      $('cfg-token').value = msg.config.token || '';
-      $('cfg-owner').value = msg.config.owner || '';
-      $('cfg-repo').value = msg.config.repo || '';
-      $('cfg-branch').value = msg.config.branch || 'main';
-      $('cfg-path').value = msg.config.filePath || '';
+  function buildSwatch(diff) {
+    const cat = categorizeDiff(diff.path);
+    const isRemoved = diff.kind === 'removed';
+    const value = isRemoved ? diff.oldValue : diff.newValue;
 
-      // Restaure l'intervalle de polling
-      if (typeof msg.pollInterval === 'number') {
-        pollIntervalMs = msg.pollInterval;
-        $('cfg-poll').value = String(msg.pollInterval);
+    if (cat === 'color') {
+      const modes = extractColorModes(value);
+      if (modes) {
+        return `<div class="diff-swatch split ${isRemoved ? 'removed-color' : ''}">
+          <div class="half" style="background:${modes.light}"></div>
+          <div class="half" style="background:${modes.dark}"></div>
+        </div>`;
       }
-
-      // Auto-init du SHA : si une collection Somfy existe déjà mais qu'on n'a pas
-      // de SHA mémorisé, on aligne silencieusement sur le SHA distant courant
-      // pour éviter un faux bandeau "update available".
-      if (lastSyncedSha === null && msg.hasExistingCollection) {
-        autoInitSha();
-      } else {
-        maybeStartPolling();
+      const hex = extractHex(value);
+      if (hex) {
+        return `<div class="diff-swatch color ${isRemoved ? 'removed-color' : ''}" style="background:${hex}"></div>`;
       }
-    } else if (msg.type === 'config-saved') {
-      toast('✓ Config saved');
-      maybeStartPolling();
-    } else if (msg.type === 'diffs-computed') {
-      renderDiffs(msg.diffs, msg.totalTokens, msg.placeholders);
-    } else if (msg.type === 'progress') {
-      $('status').textContent = msg.message;
-    } else if (msg.type === 'apply-done') {
-      $('status').textContent = '';
-      const skipped = msg.skipped ? ` (${msg.skipped} skipped)` : '';
-      toast(`✓ Applied ${msg.count} tokens${skipped}`);
-      if (lastKnownRemoteSha) {
-        lastSyncedSha = lastKnownRemoteSha;
-        bannerDismissedForSha = null;
-        parent.postMessage({ pluginMessage: { type: 'save-synced-sha', sha: lastSyncedSha } }, '*');
-        toggleBanner(false);
-      }
-      if (msg.errors && msg.errors.length > 0) {
-        console.error('Apply errors:', msg.errors);
-        const errMsg = 'First errors:\n' + msg.errors.join('\n');
-        setTimeout(() => alert(errMsg), 100);
-      }
-      // Refresh diffs
-      setTimeout(() => fetchTokens(currentConfig), 500);
-    } else if (msg.type === 'error') {
-      toast(msg.message, true);
-      $('status').textContent = '';
+      return `<div class="diff-swatch color ${isRemoved ? 'removed-color' : ''}" style="background:var(--bg-tertiary)"></div>`;
     }
-  };
+    if (cat === 'font') return `<div class="diff-swatch">Aa</div>`;
+    if (cat === 'shadow') return `<div class="diff-swatch shadow"></div>`;
+    if (cat === 'radius') return `<div class="diff-swatch">◜</div>`;
+    if (cat === 'spacing') return `<div class="diff-swatch">⇔</div>`;
+    return `<div class="diff-swatch">·</div>`;
+  }
+
+  // Tente d'extraire une valeur simple comparable depuis une valeur de diff
+  // (string, number, ou objet { Light, Dark } / { light, dark } / { value })
+  function simpleValue(v) {
+    if (v === null || v === undefined) return null;
+    if (typeof v === 'string' || typeof v === 'number') return v;
+    if (typeof v === 'object') {
+      if (v.value !== undefined) return simpleValue(v.value);
+      // Modes object → on renvoie "Light/Dark"
+      const modes = extractColorModes(v);
+      if (modes) return null; // signalé séparément
+    }
+    return null;
+  }
+
+  function buildMeta(diff) {
+    const cat = categorizeDiff(diff.path);
+    if (diff.kind === 'added') {
+      const v = diff.newValue;
+      if (cat === 'color') {
+        const modes = extractColorModes(v);
+        if (modes) return `Added · L <span class="mono">${modes.light}</span> / D <span class="mono">${modes.dark}</span>`;
+        const hex = extractHex(v);
+        if (hex) return `Added · <span class="mono">${hex}</span>`;
+      }
+      const sv = simpleValue(v);
+      return sv !== null ? `Added · <span class="mono">${sv}</span>` : 'Added';
+    }
+    if (diff.kind === 'removed') {
+      const v = diff.oldValue;
+      if (cat === 'color') {
+        const modes = extractColorModes(v);
+        if (modes) return `Removed · was L <span class="mono">${modes.light}</span> / D <span class="mono">${modes.dark}</span>`;
+        const hex = extractHex(v);
+        if (hex) return `Removed · was <span class="mono">${hex}</span>`;
+      }
+      const sv = simpleValue(v);
+      return sv !== null ? `Removed · was <span class="mono">${sv}</span>` : 'Removed';
+    }
+    if (diff.kind === 'modified') {
+      // Couleur single-mode
+      const oldHex = extractHex(diff.oldValue);
+      const newHex = extractHex(diff.newValue);
+      if (oldHex && newHex && oldHex !== newHex) {
+        return `<span class="mono strike">${oldHex}</span> → <span class="mono">${newHex}</span>`;
+      }
+      // Couleur dual-mode
+      const oldModes = extractColorModes(diff.oldValue);
+      const newModes = extractColorModes(diff.newValue);
+      if (oldModes && newModes) {
+        const parts = [];
+        if (oldModes.light !== newModes.light) parts.push(`L <span class="mono strike">${oldModes.light}</span> → <span class="mono">${newModes.light}</span>`);
+        if (oldModes.dark !== newModes.dark) parts.push(`D <span class="mono strike">${oldModes.dark}</span> → <span class="mono">${newModes.dark}</span>`);
+        if (parts.length) return parts.join(' · ');
+      }
+      // Cas mixte : ancien single → nouveau dual ou inverse
+      if (oldHex && newModes) {
+        return `<span class="mono strike">${oldHex}</span> → L <span class="mono">${newModes.light}</span> / D <span class="mono">${newModes.dark}</span>`;
+      }
+      if (oldModes && newHex) {
+        return `L <span class="mono strike">${oldModes.light}</span> / D <span class="mono strike">${oldModes.dark}</span> → <span class="mono">${newHex}</span>`;
+      }
+      // Valeur scalaire (dimension, number, fontWeight, fontFamily, etc.)
+      const ov = simpleValue(diff.oldValue);
+      const nv = simpleValue(diff.newValue);
+      if (ov !== null && nv !== null && ov !== nv) {
+        return `<span class="mono strike">${ov}</span> → <span class="mono">${nv}</span>`;
+      }
+      return 'Modified';
+    }
+    return '';
+  }
+
+  function badgeLabel(kind) {
+    if (kind === 'added') return 'New';
+    if (kind === 'modified') return 'Edit';
+    if (kind === 'removed') return 'Del';
+    return kind;
+  }
+
+  function renderFilteredList() {
+    const list = $('diff-list');
+    list.innerHTML = '';
+    const filtered = currentFilter === 'all'
+      ? currentDiffs
+      : currentDiffs.filter(d => categorizeDiff(d.path) === currentFilter);
+
+    if (filtered.length === 0) {
+      const msg = currentDiffs.length === 0
+        ? '<div class="empty-icon">✓</div>Everything is up to date.'
+        : `<div class="empty-icon">○</div>No diffs in <b>${currentFilter}</b>.`;
+      list.innerHTML = `<div class="empty">${msg}</div>`;
+      return;
+    }
+    filtered.slice(0, 200).forEach(d => {
+      const el = document.createElement('div');
+      el.className = 'diff-row ' + d.kind;
+      el.innerHTML = `
+        <div class="accent"></div>
+        ${buildSwatch(d)}
+        <div class="diff-info">
+          <div class="diff-path" title="${d.path}">${d.path}</div>
+          <div class="diff-meta">${buildMeta(d)}</div>
+        </div>
+        <span class="diff-badge">${badgeLabel(d.kind)}</span>
+      `;
+      list.appendChild(el);
+    });
+    if (filtered.length > 200) {
+      const more = document.createElement('div');
+      more.className = 'help';
+      more.style.padding = '8px';
+      more.textContent = `+ ${filtered.length - 200} more diffs (will all be applied)`;
+      list.appendChild(more);
+    }
+  }
+
+  document.querySelectorAll('.filter-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      if (pill.disabled) return;
+      document.querySelectorAll('.filter-pill').forEach(p => p.classList.remove('active'));
+      pill.classList.add('active');
+      currentFilter = pill.dataset.cat;
+      renderFilteredList();
+    });
+  });
 
   // ---------- Auto-fetch ----------
   let pollIntervalMs = 60_000;
@@ -505,8 +932,6 @@
     if (!sha) return;
 
     lastKnownRemoteSha = sha;
-
-    // Première utilisation : on n'a pas encore de référence locale
     if (lastSyncedSha === null) return;
 
     const hasUpdate = sha !== lastSyncedSha && sha !== bannerDismissedForSha;
@@ -519,13 +944,24 @@
     else el.classList.remove('show');
   }
 
+  function updateAutoPill() {
+    const pill = $('auto-pill');
+    const label = $('auto-pill-label');
+    if (pollIntervalMs <= 0) {
+      pill.style.display = 'inline-flex';
+      pill.classList.add('off');
+      label.textContent = 'Auto · off';
+    } else {
+      pill.style.display = 'inline-flex';
+      pill.classList.remove('off');
+      const txt = pollIntervalMs >= 60000 ? `${pollIntervalMs / 60000} min` : `${pollIntervalMs / 1000}s`;
+      label.textContent = `Auto · ${txt}`;
+    }
+  }
+
   function startPolling() {
     if (pollTimer) return;
-    if (pollIntervalMs <= 0) {
-      $('auto-indicator').style.display = 'none';
-      return;
-    }
-    $('auto-indicator').style.display = 'inline-flex';
+    if (pollIntervalMs <= 0) return;
     pollOnce();
     pollTimer = setInterval(pollOnce, pollIntervalMs);
   }
@@ -535,13 +971,10 @@
       clearInterval(pollTimer);
       pollTimer = null;
     }
-    $('auto-indicator').style.display = 'none';
     toggleBanner(false);
   }
 
   async function autoInitSha() {
-    // Récupère le SHA actuel et l'enregistre comme référence,
-    // partant du principe que les Variables Figma reflètent déjà cet état.
     const sha = await fetchLatestSha(currentConfig);
     if (sha) {
       lastSyncedSha = sha;
@@ -553,28 +986,32 @@
 
   function maybeStartPolling() {
     if (currentConfig.token && currentConfig.owner && currentConfig.repo && currentConfig.filePath) {
+      updateAutoPill();
       startPolling();
     } else {
+      $('auto-pill').style.display = 'none';
       stopPolling();
     }
   }
 
-  $('cfg-poll').onchange = () => {
-    const newInterval = parseInt($('cfg-poll').value, 10) || 0;
-    pollIntervalMs = newInterval;
-    parent.postMessage({ pluginMessage: { type: 'save-poll-interval', interval: newInterval } }, '*');
-    // Restart avec le nouvel intervalle
-    stopPolling();
-    if (newInterval > 0) maybeStartPolling();
-    if (newInterval === 0) {
-      toast('Auto-check disabled');
-    } else {
-      const label = newInterval >= 60000 ? `${newInterval / 60000} min` : `${newInterval / 1000}s`;
-      toast(`Auto-check set to ${label}`);
-    }
-  };
+  document.querySelectorAll('.poll-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const newInterval = parseInt(btn.dataset.interval, 10) || 0;
+      pollIntervalMs = newInterval;
+      document.querySelectorAll('.poll-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      parent.postMessage({ pluginMessage: { type: 'save-poll-interval', interval: newInterval } }, '*');
+      stopPolling();
+      updateAutoPill();
+      if (newInterval > 0) maybeStartPolling();
+      const label = newInterval === 0 ? 'off' : (newInterval >= 60000 ? `${newInterval / 60000} min` : `${newInterval / 1000}s`);
+      toast(`Auto-check ${newInterval === 0 ? 'disabled' : 'set to ' + label}`);
+    });
+  });
 
   $('banner-sync').onclick = () => {
+    // Marque ce SHA comme "vu" : le bandeau ne reviendra que si un NOUVEAU commit arrive
+    bannerDismissedForSha = lastKnownRemoteSha;
     toggleBanner(false);
     $('btn-fetch').click();
   };
@@ -584,14 +1021,60 @@
     toggleBanner(false);
   };
 
-  // Re-check immédiat quand on revient sur l'onglet Sync
-  document.querySelectorAll('.tab').forEach(t => {
-    t.addEventListener('click', () => {
-      if (t.dataset.tab === 'sync') pollOnce();
-    });
-  });
+  window.onmessage = (event) => {
+    const msg = event.data.pluginMessage;
+    if (!msg) return;
+    if (msg.type === 'config-loaded') {
+      currentConfig = msg.config;
+      lastSyncedSha = msg.lastSyncedSha || null;
+      $('cfg-token').value = msg.config.token || '';
+      $('cfg-owner').value = msg.config.owner || '';
+      $('cfg-repo').value = msg.config.repo || '';
+      $('cfg-branch').value = msg.config.branch || 'main';
+      $('cfg-path').value = msg.config.filePath || '';
+      updateRepoDisplay();
 
-  // ---------- Init ----------
+      if (typeof msg.pollInterval === 'number') {
+        pollIntervalMs = msg.pollInterval;
+        document.querySelectorAll('.poll-btn').forEach(b => {
+          b.classList.toggle('active', parseInt(b.dataset.interval, 10) === msg.pollInterval);
+        });
+      }
+
+      if (lastSyncedSha === null && msg.hasExistingCollection) {
+        autoInitSha();
+      } else {
+        maybeStartPolling();
+      }
+    } else if (msg.type === 'config-saved') {
+      toast('✓ Config saved');
+      maybeStartPolling();
+    } else if (msg.type === 'diffs-computed') {
+      renderDiffs(msg.diffs, msg.totalTokens, msg.placeholders);
+    } else if (msg.type === 'progress') {
+      $('status').textContent = ' · ' + msg.message;
+    } else if (msg.type === 'apply-done') {
+      $('status').textContent = '';
+      const skipped = msg.skipped ? ` (${msg.skipped} skipped)` : '';
+      toast(`✓ Applied ${msg.count} tokens${skipped}`);
+      if (lastKnownRemoteSha) {
+        lastSyncedSha = lastKnownRemoteSha;
+        bannerDismissedForSha = null;
+        parent.postMessage({ pluginMessage: { type: 'save-synced-sha', sha: lastSyncedSha } }, '*');
+        toggleBanner(false);
+      }
+      if (msg.errors && msg.errors.length > 0) {
+        console.error('Apply errors:', msg.errors);
+        const errMsg = 'First errors:\n' + msg.errors.join('\n');
+        setTimeout(() => alert(errMsg), 100);
+      }
+      setTimeout(() => fetchTokens(currentConfig), 500);
+    } else if (msg.type === 'error') {
+      toast(msg.message, true);
+      $('status').textContent = '';
+    }
+  };
+
   parent.postMessage({ pluginMessage: { type: 'load-config' } }, '*');
 </script>
 </body>
