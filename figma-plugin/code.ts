@@ -142,6 +142,27 @@ function normalizeColor(v: any): string {
   return "";
 }
 
+// Convertit local.values (Figma valuesByMode) en format comparable à newValue côté UI.
+// Color → { light: "#hex", dark: "#hex" } ou "#hex" pour single-mode
+// Number/dimension/fontWeight → number
+// Autres → la valeur brute du mode light
+function normalizeOldValue(local: any, type: string, lightId: string, darkId: string): any {
+  if (!local || !local.values) return null;
+  if (type === "color") {
+    const lightHex = normalizeColor(local.values[lightId]);
+    const darkRaw = local.values[darkId];
+    if (darkRaw !== undefined && darkRaw !== null) {
+      return { light: lightHex, dark: normalizeColor(darkRaw) };
+    }
+    return lightHex;
+  }
+  if (type === "dimension" || type === "number" || type === "fontWeight") {
+    const v = local.values[lightId];
+    return typeof v === "number" ? Math.round(v * 10000) / 10000 : v;
+  }
+  return local.values[lightId];
+}
+
 // ---------- Path / name conversion ----------
 function tokenPathToFigmaName(path: string): string {
   return path
@@ -273,7 +294,13 @@ function computeDiffs(
         const localSnapshot = buildLocalSnapshot(local, token.type, lightModeId, darkModeId);
         const remoteSnapshot = buildRemoteSnapshot(token);
         if (localSnapshot !== remoteSnapshot) {
-          diffs.push({ kind: "modified", path: token.path, type: token.type, oldValue: local.values, newValue: token.value });
+          diffs.push({
+            kind: "modified",
+            path: token.path,
+            type: token.type,
+            oldValue: normalizeOldValue(local, token.type, lightModeId, darkModeId),
+            newValue: token.value
+          });
         }
       }
     } else if (token.type === "typography") {
@@ -293,7 +320,12 @@ function computeDiffs(
   for (const path of localMap.keys()) {
     if (!seen.has(path)) {
       const local = localMap.get(path)!;
-      diffs.push({ kind: "removed", path, type: local.type, oldValue: local.values });
+      diffs.push({
+        kind: "removed",
+        path,
+        type: local.type,
+        oldValue: normalizeOldValue(local, local.type, lightModeId, darkModeId)
+      });
     }
   }
 
