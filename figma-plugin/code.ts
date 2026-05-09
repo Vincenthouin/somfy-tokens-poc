@@ -119,7 +119,7 @@ function hexToRgb(hex: string): { r: number; g: number; b: number; a: number } {
   if (h.length === 3) h = h.split("").map(c => c + c).join("");
   let a = 1;
   if (h.length === 8) {
-    a = parseInt(h.slice(6, 8), 16) / 255;
+    a = Math.round((parseInt(h.slice(6, 8), 16) / 255) * 100) / 100;
     h = h.slice(0, 6);
   }
   const r = parseInt(h.slice(0, 2), 16) / 255;
