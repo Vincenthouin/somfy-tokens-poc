@@ -807,6 +807,15 @@
             "fontSize": "{primitives.loop.font.size.12}",
             "lineHeight": "{primitives.loop.font.lineHeight.120}"
           }
+        },
+        "Test": {
+          "$type": "typography",
+          "$value": {
+            "fontFamily": "{primitives.loop.font.family}",
+            "fontWeight": "{primitives.loop.font.weight.regular}",
+            "fontSize": "{primitives.loop.font.size.12}",
+            "lineHeight": "{primitives.loop.font.lineHeight.120}"
+          }
         }
       }
     }
