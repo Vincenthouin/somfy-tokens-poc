@@ -24,6 +24,13 @@
             "$extensions": {
               "somfy.darkPlaceholder": true
             }
+          },
+          "Test": {
+            "$type": "color",
+            "$value": {
+              "light": "#ff0000",
+              "dark": "#ff0000"
+            }
           }
         },
         "background": {
