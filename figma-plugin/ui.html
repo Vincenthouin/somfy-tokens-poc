@@ -456,6 +456,63 @@
   .toast.error { background: var(--danger); color: white; }
 
   #status { font-size: 10px; color: var(--text-tertiary); }
+
+  .drift-banner {
+    display: none;
+    margin: 12px 16px 0;
+    padding: 10px 12px;
+    background: var(--warning-bg);
+    border: 1px solid var(--warning-border);
+    border-radius: 6px;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+  .drift-banner.show { display: flex; }
+  .drift-banner .banner-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    background: rgba(245,166,35,0.15);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .drift-banner .banner-msg { flex: 1; min-width: 0; }
+  .drift-banner .banner-title { font-size: 11px; font-weight: 500; color: var(--text); }
+  .drift-banner .banner-sub { font-size: 10px; color: var(--text-secondary); margin-top: 1px; }
+  .drift-banner button {
+    background: var(--warning);
+    color: #000000;
+    border: none;
+    padding: 5px 10px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: inherit;
+  }
+
+  .drift-section {
+    display: none;
+    margin-bottom: 16px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--warning-border);
+  }
+  .drift-section-label {
+    font-size: 10px;
+    color: var(--warning);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 8px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .diff-row.drift .accent { background: var(--warning); }
+  .diff-row.drift .diff-badge { color: var(--warning); background: var(--warning-bg); }
 </style>
 </head>
 <body>
@@ -471,6 +528,17 @@
     </span>
   </div>
 
+  <div id="desync-banner" class="drift-banner">
+    <div class="banner-icon">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f5a623" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+    </div>
+    <div class="banner-msg">
+      <div class="banner-title" id="desync-title">Out of sync with source of truth</div>
+      <div class="banner-sub" id="desync-sub">Variable(s) or style(s) were modified directly in Figma and aren't synced with the source of truth.</div>
+    </div>
+    <button id="btn-desync-review">Review</button>
+  </div>
+
   <div id="update-banner" class="update-banner">
     <div class="banner-icon">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
@@ -484,6 +552,14 @@
   </div>
 
   <div class="content" id="tab-sync">
+    <div id="drift-section" class="drift-section">
+      <div class="drift-section-label">
+        <span>⚠ Local Figma modifications</span>
+        <button id="btn-revert-all" style="background:transparent;border:1px solid var(--warning-border);color:var(--warning);padding:3px 8px;border-radius:4px;font-size:10px;font-weight:500;cursor:pointer;font-family:inherit;">↩ Revert all</button>
+      </div>
+      <div class="diff-list" id="drift-list"></div>
+    </div>
+
     <div id="sync-empty" class="empty">
       <div class="empty-icon">⟳</div>
       <div>Click <b>Check</b> to fetch the latest tokens from GitHub.</div>
@@ -585,6 +661,7 @@
   let currentConfig = {};
   let currentDiffs = [];
   let currentFilter = 'all';
+  let localDrifts = [];
 
   document.querySelectorAll('.tab').forEach(t => {
     t.onclick = () => {
@@ -593,7 +670,10 @@
       const tab = t.dataset.tab;
       $('tab-sync').style.display = tab === 'sync' ? 'block' : 'none';
       $('tab-config').style.display = tab === 'config' ? 'block' : 'none';
-      if (tab === 'sync') pollOnce();
+      if (tab === 'sync') {
+        pollOnce();
+        parent.postMessage({ pluginMessage: { type: 'check-local-desync' } }, '*');
+      }
     };
   });
 
@@ -611,6 +691,135 @@
       $('repo-path').textContent = 'No repo configured';
     }
   }
+
+  // ---------- Drift meta builders ----------
+  function buildTypographyDriftMeta(figma, expected) {
+    if (!figma || !expected) return 'Differs from last sync';
+    const parts = [];
+    if (figma.fontFamily !== expected.fontFamily)
+      parts.push(`Family <span class="mono strike">${figma.fontFamily}</span> → <span class="mono">${expected.fontFamily}</span>`);
+    if (figma.fontStyle !== expected.fontStyle)
+      parts.push(`Weight <span class="mono strike">${figma.fontStyle}</span> → <span class="mono">${expected.fontStyle}</span>`);
+    if (figma.fontSize !== expected.fontSize)
+      parts.push(`Size <span class="mono strike">${figma.fontSize}</span> → <span class="mono">${expected.fontSize}</span>`);
+    if (figma.lineHeight !== expected.lineHeight)
+      parts.push(`LH <span class="mono strike">${figma.lineHeight}</span> → <span class="mono">${expected.lineHeight}</span>`);
+    return parts.join(' · ') || 'Differs from last sync';
+  }
+
+  function buildShadowDriftMeta(figma, expected) {
+    if (!figma || !expected) return 'Differs from last sync';
+    const parts = [];
+    if (String(figma.color).toUpperCase() !== String(expected.color).toUpperCase())
+      parts.push(`Color <span class="mono strike">${figma.color}</span> → <span class="mono">${expected.color}</span>`);
+    if (figma.opacity !== expected.opacity)
+      parts.push(`Opacity <span class="mono strike">${figma.opacity}</span> → <span class="mono">${expected.opacity}</span>`);
+    if (figma.offsetX !== expected.offsetX || figma.offsetY !== expected.offsetY)
+      parts.push(`Offset <span class="mono strike">${figma.offsetX},${figma.offsetY}</span> → <span class="mono">${expected.offsetX},${expected.offsetY}</span>`);
+    if (figma.blur !== expected.blur)
+      parts.push(`Blur <span class="mono strike">${figma.blur}</span> → <span class="mono">${expected.blur}</span>`);
+    if (figma.spread !== expected.spread)
+      parts.push(`Spread <span class="mono strike">${figma.spread}</span> → <span class="mono">${expected.spread}</span>`);
+    return parts.join(' · ') || 'Differs from last sync';
+  }
+
+  // ---------- Desync (drift Figma local) ----------
+  function updateDesyncBanner(drifts) {
+    localDrifts = drifts || [];
+    const banner = $('desync-banner');
+    if (localDrifts.length === 0) {
+      banner.classList.remove('show');
+      $('drift-section').style.display = 'none';
+      return;
+    }
+    const n = localDrifts.length;
+    $('desync-title').textContent = `Out of sync — ${n} token${n > 1 ? 's' : ''} drifted`;
+    $('desync-sub').textContent = `Variable(s) or style(s) were modified directly in Figma and aren't synced with the source of truth.`;
+    banner.classList.add('show');
+  }
+
+  function renderDriftList() {
+    const list = $('drift-list');
+    list.innerHTML = '';
+    $('drift-section').style.display = localDrifts.length > 0 ? 'block' : 'none';
+
+    localDrifts.forEach(d => {
+      const cat = categorizeDiff(d.path);
+      const el = document.createElement('div');
+      el.className = 'diff-row drift';
+
+      // Swatch : on affiche la valeur actuelle de Figma (la "mauvaise")
+      const swatchFake = { path: d.path, kind: 'modified', oldValue: d.figmaValue, newValue: d.figmaValue };
+      const swatch = buildSwatch(swatchFake);
+
+      // Meta : Figma X → Attendu Y
+      let metaHtml = '';
+      let badge = 'DRIFT';
+      if (d.reason === 'deleted') {
+        metaHtml = `Deleted from Figma · expected <span class="mono">${d.expectedName || d.path}</span>`;
+        badge = 'DEL';
+      } else if (d.reason === 'renamed') {
+        const figmaN = d.figmaName || '?';
+        const expectedN = d.expectedName || '?';
+        metaHtml = `Renamed · <span class="mono strike">${expectedN}</span> → <span class="mono">${figmaN}</span>`;
+        badge = 'RENAMED';
+      } else if (d.type === 'typography') {
+        metaHtml = buildTypographyDriftMeta(d.figmaValue, d.expectedValue);
+      } else if (d.type === 'shadow') {
+        metaHtml = buildShadowDriftMeta(d.figmaValue, d.expectedValue);
+      } else if (cat === 'color') {
+        const figmaModes = extractColorModes(d.figmaValue);
+        const expectedModes = extractColorModes(d.expectedValue);
+        const figmaHex = extractHex(d.figmaValue);
+        const expectedHex = extractHex(d.expectedValue);
+        if (figmaModes && expectedModes) {
+          const parts = [];
+          if (figmaModes.light !== expectedModes.light)
+            parts.push(`L <span class="mono">${figmaModes.light}</span> → <span class="mono">${expectedModes.light}</span>`);
+          if (figmaModes.dark !== expectedModes.dark)
+            parts.push(`D <span class="mono">${figmaModes.dark}</span> → <span class="mono">${expectedModes.dark}</span>`);
+          metaHtml = parts.join(' · ') || 'Differs from last sync';
+        } else if (figmaHex && expectedHex) {
+          metaHtml = `<span class="mono">${figmaHex}</span> → <span class="mono">${expectedHex}</span>`;
+        }
+      } else {
+        const fv = simpleValue(d.figmaValue);
+        const ev = simpleValue(d.expectedValue);
+        if (fv !== null && ev !== null) {
+          metaHtml = `<span class="mono">${fv}</span> → <span class="mono">${ev}</span>`;
+        }
+      }
+
+      el.innerHTML = `
+        <div class="accent"></div>
+        ${swatch}
+        <div class="diff-info">
+          <div class="diff-path" title="${d.path}">${d.path}</div>
+          <div class="diff-meta">${metaHtml || 'Differs from last sync'}</div>
+        </div>
+        <span class="diff-badge">${badge}</span>
+      `;
+      list.appendChild(el);
+    });
+  }
+
+  function doRevert() {
+    if (localDrifts.length === 0) return;
+    const n = localDrifts.length;
+    if (!confirm(`Rétablir ${n} token${n > 1 ? 's' : ''} à la valeur du dernier sync ?`)) return;
+    $('status').textContent = ' · Rétablissement…';
+    parent.postMessage({ pluginMessage: {
+      type: 'revert-local-changes',
+      paths: localDrifts.map(d => d.path)
+    }}, '*');
+  }
+
+  $('btn-desync-review').onclick = () => {
+    renderDriftList();
+    $('tab-sync').scrollTop = 0;
+  };
+
+  $('btn-revert-all').onclick = doRevert;
 
   $('btn-save').onclick = () => {
     currentConfig = {
@@ -984,6 +1193,19 @@
     maybeStartPolling();
   }
 
+  // ---------- Drift polling (figma.on documentchange ne couvre pas les changements de variables) ----------
+  let driftPollTimer = null;
+  function startDriftPolling() {
+    if (driftPollTimer) return;
+    driftPollTimer = setInterval(() => {
+      const syncActive = document.querySelector('.tab[data-tab="sync"]').classList.contains('active');
+      if (syncActive) {
+        parent.postMessage({ pluginMessage: { type: 'check-local-desync' } }, '*');
+      }
+    }, 3000);
+  }
+  startDriftPolling();
+
   function maybeStartPolling() {
     if (currentConfig.token && currentConfig.owner && currentConfig.repo && currentConfig.filePath) {
       updateAutoPill();
@@ -1046,6 +1268,10 @@
       } else {
         maybeStartPolling();
       }
+
+      if (msg.hasAppliedSnapshot) {
+        parent.postMessage({ pluginMessage: { type: 'check-local-desync' } }, '*');
+      }
     } else if (msg.type === 'config-saved') {
       toast('✓ Config saved');
       maybeStartPolling();
@@ -1069,6 +1295,21 @@
         setTimeout(() => alert(errMsg), 100);
       }
       setTimeout(() => fetchTokens(currentConfig), 500);
+    } else if (msg.type === 'local-desync-computed') {
+      updateDesyncBanner(msg.drifts);
+    } else if (msg.type === 'revert-done') {
+      $('status').textContent = '';
+      const n = msg.count;
+      const hasErrors = msg.errors && msg.errors.length > 0;
+      if (n === 0 && hasErrors) {
+        toast(`Revert failed — see console`, true);
+        console.error('Revert errors:', msg.errors);
+        setTimeout(() => alert('Revert errors:\n' + msg.errors.join('\n')), 100);
+      } else {
+        toast(`↩ ${n} token${n > 1 ? 's' : ''} reverted${hasErrors ? ` (${msg.errors.length} error${msg.errors.length > 1 ? 's' : ''})` : ''}`);
+        if (hasErrors) console.error('Revert errors:', msg.errors);
+      }
+      parent.postMessage({ pluginMessage: { type: 'check-local-desync' } }, '*');
     } else if (msg.type === 'error') {
       toast(msg.message, true);
       $('status').textContent = '';

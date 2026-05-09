@@ -21,11 +21,22 @@ interface Diff {
   newValue?: any;
 }
 
+interface DriftItem {
+  path: string;
+  type: string;
+  reason?: "modified" | "renamed" | "deleted";
+  figmaValue?: any;
+  expectedValue?: any;
+  figmaName?: string | null;
+  expectedName?: string;
+}
+
 let cachedTokens: FlatToken[] = [];
 let cachedTokenTree: any = null; // raw JSON for alias resolution
 
 const SUPPORTED_VAR_TYPES = new Set(["color", "dimension", "number", "fontWeight", "fontFamily"]);
 const SUPPORTED_STYLE_TYPES = new Set(["typography", "shadow"]);
+const SNAPSHOT_KEY = "lastAppliedSnapshotV2"; // bump invalidates older formats
 
 // Mapping from numeric font weights to Figma font style names
 const WEIGHT_TO_STYLE: { [key: number]: string } = {
@@ -163,12 +174,352 @@ function normalizeOldValue(local: any, type: string, lightId: string, darkId: st
   return local.values[lightId];
 }
 
+// ---------- Snapshot (desync detection) ----------
+// Le snapshot reflète l'état réel de Figma après l'Apply (pas ce que dit le JSON),
+// car certaines valeurs sont transformées : alpha de shadow stocké dans opacity,
+// fallback de fontStyle quand un weight n'est pas installé, etc.
+async function saveAppliedSnapshot(tokens: FlatToken[], _tree: any) {
+  await pagesReady;
+  const snapshot: { [path: string]: { type: string; value: any; figmaId?: string } } = {};
+
+  // Variables : valeurs JSON + ID Figma pour tracking par ID (résiste aux renames)
+  const localVarsByPath = await readFigmaVariables();
+  for (const token of tokens) {
+    if (isEmptyValue(token)) continue;
+    if (SUPPORTED_VAR_TYPES.has(token.type)) {
+      const local = localVarsByPath.get(token.path);
+      snapshot[token.path] = { type: token.type, value: token.value, figmaId: local?.id };
+    }
+  }
+
+  // Text Styles : on relit l'état réel Figma (lookup par nom normalisé) + ID
+  const textStyles = await figma.getLocalTextStylesAsync();
+  const textStylesByName = new Map(textStyles.map(s => [normalizeStyleName(s.name), s]));
+  for (const token of tokens) {
+    if (token.type !== "typography" || isEmptyValue(token)) continue;
+    const styleName = normalizeStyleName(styleNameFromPath(token.path));
+    const style = textStylesByName.get(styleName);
+    if (style) {
+      snapshot[token.path] = { type: "typography", value: readTextStyleProps(style), figmaId: style.id };
+    }
+  }
+
+  // Effect Styles : idem
+  const effectStyles = await figma.getLocalEffectStylesAsync();
+  const effectStylesByName = new Map(effectStyles.map(s => [normalizeStyleName(s.name), s]));
+  for (const token of tokens) {
+    if (token.type !== "shadow" || isEmptyValue(token)) continue;
+    const styleName = normalizeStyleName(styleNameFromPath(token.path));
+    const style = effectStylesByName.get(styleName);
+    if (style) {
+      const props = readEffectStyleProps(style);
+      if (props) snapshot[token.path] = { type: "shadow", value: props, figmaId: style.id };
+    }
+  }
+
+  await figma.clientStorage.setAsync(SNAPSHOT_KEY, snapshot);
+}
+
+// Helper: charge la map path → figmaId depuis le snapshot pour les apply
+async function loadPathToIdMap(): Promise<{ [path: string]: string }> {
+  const snap: any = await figma.clientStorage.getAsync(SNAPSHOT_KEY);
+  const map: { [path: string]: string } = {};
+  if (snap) {
+    for (const path of Object.keys(snap)) {
+      const id = snap[path] && snap[path].figmaId;
+      if (id) map[path] = id;
+    }
+  }
+  return map;
+}
+
+// Lecture des propriétés clés d'un TextStyle dans un format normalisé
+function readTextStyleProps(style: TextStyle) {
+  const lh = style.lineHeight;
+  let lineHeightRatio = 0;
+  if (lh && (lh as any).unit === "PERCENT") {
+    lineHeightRatio = (lh as any).value / 100;
+  } else if (lh && (lh as any).unit === "PIXELS" && style.fontSize > 0) {
+    lineHeightRatio = (lh as any).value / style.fontSize;
+  }
+  return {
+    fontFamily: style.fontName.family,
+    fontStyle: style.fontName.style,
+    fontSize: Math.round(style.fontSize * 10000) / 10000,
+    lineHeight: Math.round(lineHeightRatio * 10000) / 10000
+  };
+}
+
+// Lecture des propriétés clés d'un EffectStyle (premier DROP_SHADOW)
+function readEffectStyleProps(style: EffectStyle) {
+  const effect = style.effects[0] as DropShadowEffect | undefined;
+  if (!effect || effect.type !== "DROP_SHADOW") return null;
+  return {
+    color: rgbToHex({ r: effect.color.r, g: effect.color.g, b: effect.color.b }),
+    opacity: Math.round(effect.color.a * 10000) / 10000,
+    offsetX: effect.offset.x,
+    offsetY: effect.offset.y,
+    blur: effect.radius,
+    spread: effect.spread || 0
+  };
+}
+
+function expectedTypographyProps(expected: any) {
+  const family = Array.isArray(expected.fontFamily) ? expected.fontFamily[0] : String(expected.fontFamily);
+  const weight = Number(expected.fontWeight);
+  const styleName = WEIGHT_TO_STYLE[weight] || "Regular";
+  const lh = typeof expected.lineHeight === "number"
+    ? expected.lineHeight
+    : parseFloat(String(expected.lineHeight));
+  return {
+    fontFamily: family,
+    fontStyle: styleName,
+    fontSize: Math.round(parseDimension(expected.fontSize) * 10000) / 10000,
+    lineHeight: Math.round((isNaN(lh) ? 0 : lh) * 10000) / 10000
+  };
+}
+
+function expectedShadowProps(expected: any) {
+  const colorObj = expected.color || {};
+  const colorHex = (typeof colorObj === "object" && "light" in colorObj
+    ? colorObj.light
+    : (typeof colorObj === "string" ? colorObj : "#000000"));
+  return {
+    color: String(colorHex).toUpperCase(),
+    opacity: Math.round((typeof expected.opacity === "number" ? expected.opacity : 1) * 10000) / 10000,
+    offsetX: parseDimension(expected.offsetX),
+    offsetY: parseDimension(expected.offsetY),
+    blur: parseDimension(expected.blur),
+    spread: parseDimension(expected.spread)
+  };
+}
+
+async function checkLocalDesync(): Promise<DriftItem[]> {
+  await pagesReady;
+  const snapshot: { [path: string]: { type: string; value: any; figmaId?: string } } | null =
+    await figma.clientStorage.getAsync(SNAPSHOT_KEY);
+  if (!snapshot || Object.keys(snapshot).length === 0) return [];
+
+  const collections = await figma.variables.getLocalVariableCollectionsAsync();
+  const collection = collections.find(c => c.name === "Somfy Tokens");
+
+  let lightId = "", darkId = "";
+  let localMap: Map<string, any> = new Map();
+  const localVarsById = new Map<string, any>();
+  if (collection) {
+    const lightMode = collection.modes.find(m => m.name === "Light") || collection.modes[0];
+    const darkMode = collection.modes.find(m => m.name === "Dark");
+    lightId = lightMode?.modeId || "";
+    darkId = darkMode?.modeId || "";
+    localMap = await readFigmaVariables();
+    for (const e of localMap.values()) localVarsById.set(e.id, e);
+  }
+
+  const textStyles = await figma.getLocalTextStylesAsync();
+  const textStylesByName = new Map(textStyles.map(s => [normalizeStyleName(s.name), s]));
+  const textStylesById = new Map(textStyles.map(s => [s.id, s]));
+  const effectStyles = await figma.getLocalEffectStylesAsync();
+  const effectStylesByName = new Map(effectStyles.map(s => [normalizeStyleName(s.name), s]));
+  const effectStylesById = new Map(effectStyles.map(s => [s.id, s]));
+
+  const drifts: DriftItem[] = [];
+
+  for (const [path, entry] of Object.entries(snapshot)) {
+    if (SUPPORTED_VAR_TYPES.has(entry.type)) {
+      // Lookup par ID en priorité, fallback par path (nom)
+      let local = entry.figmaId ? localVarsById.get(entry.figmaId) : null;
+      let lookedUpById = !!local;
+      if (!local) local = localMap.get(path);
+
+      if (!local) {
+        // Variable supprimée de Figma
+        drifts.push({
+          path,
+          type: entry.type,
+          reason: "deleted",
+          expectedValue: entry.value,
+          expectedName: tokenPathToFigmaName(path)
+        });
+        continue;
+      }
+
+      // Détection de rename : lookup par ID a réussi mais le nom courant ne match pas l'attendu
+      const expectedFigmaName = tokenPathToFigmaName(path);
+      // local vient de readFigmaVariables qui ne stocke pas le name brut, mais le path est dérivé du name
+      // on compare donc la dotPath actuelle avec la path attendue
+      const currentDotPath = [...localMap.entries()].find(([_, v]) => v.id === local.id)?.[0];
+      const isRenamed = lookedUpById && currentDotPath && currentDotPath !== path;
+
+      const localSnap = buildLocalSnapshot(local, entry.type, lightId, darkId);
+      const expectedSnap = buildRemoteSnapshot({ path, type: entry.type, value: entry.value, isPlaceholder: false });
+      const valueDiffers = localSnap !== expectedSnap;
+
+      if (isRenamed) {
+        drifts.push({
+          path,
+          type: entry.type,
+          reason: "renamed",
+          figmaName: currentDotPath ? tokenPathToFigmaName(currentDotPath) : null,
+          expectedName: expectedFigmaName,
+          figmaValue: normalizeOldValue(local, entry.type, lightId, darkId),
+          expectedValue: entry.value
+        });
+      } else if (valueDiffers) {
+        drifts.push({
+          path,
+          type: entry.type,
+          reason: "modified",
+          figmaValue: normalizeOldValue(local, entry.type, lightId, darkId),
+          expectedValue: entry.value
+        });
+      }
+    } else if (entry.type === "typography" || entry.type === "shadow") {
+      const isTypography = entry.type === "typography";
+      const expectedStyleName = styleNameFromPath(path);
+      const expectedNorm = normalizeStyleName(expectedStyleName);
+
+      // Lookup par ID en priorité
+      let style: BaseStyle | undefined;
+      let lookedUpById = false;
+      if (entry.figmaId) {
+        style = (isTypography ? textStylesById.get(entry.figmaId) : effectStylesById.get(entry.figmaId)) as any;
+        if (style) lookedUpById = true;
+      }
+      if (!style) {
+        style = (isTypography ? textStylesByName.get(expectedNorm) : effectStylesByName.get(expectedNorm)) as any;
+      }
+
+      if (!style) {
+        drifts.push({
+          path,
+          type: entry.type,
+          reason: "deleted",
+          expectedValue: entry.value,
+          expectedName: expectedStyleName
+        });
+        continue;
+      }
+
+      const isRenamed = lookedUpById && normalizeStyleName(style.name) !== expectedNorm;
+
+      let figmaProps: any;
+      let valueDiffers = false;
+      const expected = entry.value;
+
+      if (isTypography) {
+        figmaProps = readTextStyleProps(style as TextStyle);
+        valueDiffers = figmaProps.fontFamily !== expected.fontFamily
+          || figmaProps.fontStyle !== expected.fontStyle
+          || figmaProps.fontSize !== expected.fontSize
+          || figmaProps.lineHeight !== expected.lineHeight;
+      } else {
+        const props = readEffectStyleProps(style as EffectStyle);
+        if (!props) continue;
+        figmaProps = props;
+        valueDiffers = String(figmaProps.color).toUpperCase() !== String(expected.color).toUpperCase()
+          || figmaProps.opacity !== expected.opacity
+          || figmaProps.offsetX !== expected.offsetX
+          || figmaProps.offsetY !== expected.offsetY
+          || figmaProps.blur !== expected.blur
+          || figmaProps.spread !== expected.spread;
+      }
+
+      if (isRenamed) {
+        drifts.push({
+          path,
+          type: entry.type,
+          reason: "renamed",
+          figmaName: style.name,
+          expectedName: expectedStyleName,
+          figmaValue: figmaProps,
+          expectedValue: expected
+        });
+      } else if (valueDiffers) {
+        drifts.push({
+          path,
+          type: entry.type,
+          reason: "modified",
+          figmaValue: figmaProps,
+          expectedValue: expected
+        });
+      }
+    }
+  }
+
+  return drifts;
+}
+
+// Re-applique un text style depuis le snapshot (le snapshot est déjà au format props)
+async function revertTextStyleFromSnapshot(path: string, expected: any, figmaId?: string): Promise<boolean> {
+  await pagesReady;
+  const targetName = styleNameFromPath(path);
+  const targetNorm = normalizeStyleName(targetName);
+  const styles = await figma.getLocalTextStylesAsync();
+  // Lookup par ID en priorité, fallback par nom normalisé
+  let style: TextStyle | undefined;
+  if (figmaId) style = styles.find(s => s.id === figmaId);
+  if (!style) style = styles.find(s => normalizeStyleName(s.name) === targetNorm);
+  if (!style) return false;
+  // Restore le nom au cas où il aurait été renommé/normalisé par Figma
+  if (style.name !== targetName) style.name = targetName;
+
+  const family = expected.fontFamily;
+  const styleStr = expected.fontStyle || "Regular";
+  try {
+    await figma.loadFontAsync({ family, style: styleStr });
+    style.fontName = { family, style: styleStr };
+  } catch (e) {
+    try {
+      await figma.loadFontAsync({ family, style: "Regular" });
+      style.fontName = { family, style: "Regular" };
+    } catch (e2) {
+      return false;
+    }
+  }
+  if (expected.fontSize > 0) style.fontSize = expected.fontSize;
+  if (expected.lineHeight > 0) style.lineHeight = { unit: "PERCENT", value: expected.lineHeight * 100 };
+  return true;
+}
+
+async function revertEffectStyleFromSnapshot(path: string, expected: any, figmaId?: string): Promise<boolean> {
+  await pagesReady;
+  const targetName = styleNameFromPath(path);
+  const targetNorm = normalizeStyleName(targetName);
+  const styles = await figma.getLocalEffectStylesAsync();
+  let style: EffectStyle | undefined;
+  if (figmaId) style = styles.find(s => s.id === figmaId);
+  if (!style) style = styles.find(s => normalizeStyleName(s.name) === targetNorm);
+  if (!style) return false;
+  if (style.name !== targetName) style.name = targetName;
+
+  const colorStr = String(expected.color || "#000000");
+  const rgba = colorStr.startsWith("#") ? hexToRgb(colorStr) : { r: 0, g: 0, b: 0, a: 1 };
+  const effect: DropShadowEffect = {
+    type: "DROP_SHADOW",
+    color: { r: rgba.r, g: rgba.g, b: rgba.b, a: expected.opacity },
+    offset: { x: expected.offsetX, y: expected.offsetY },
+    radius: expected.blur,
+    spread: expected.spread,
+    visible: true,
+    blendMode: "NORMAL"
+  };
+  style.effects = [effect];
+  return true;
+}
+
 // ---------- Path / name conversion ----------
 function tokenPathToFigmaName(path: string): string {
   return path
     .split(".")
     .map(seg => seg === "_base" ? "base" : seg)
     .join("/");
+}
+
+// Figma normalise les noms de styles en supprimant les espaces autour des slashes
+// dès qu'on édite/déplace un style (ex: "Loop / X / Y" → "Loop/X/Y").
+// Cette fonction permet de comparer les noms indépendamment de cette normalisation.
+function normalizeStyleName(name: string): string {
+  return (name || "").replace(/\s*\/\s*/g, "/");
 }
 
 function styleNameFromPath(path: string): string {
@@ -209,14 +560,14 @@ async function readFigmaVariables(): Promise<Map<string, any>> {
 async function readFigmaTextStyles(): Promise<Map<string, TextStyle>> {
   const map = new Map<string, TextStyle>();
   const styles = await figma.getLocalTextStylesAsync();
-  for (const s of styles) map.set(s.name, s);
+  for (const s of styles) map.set(normalizeStyleName(s.name), s);
   return map;
 }
 
 async function readFigmaEffectStyles(): Promise<Map<string, EffectStyle>> {
   const map = new Map<string, EffectStyle>();
   const styles = await figma.getLocalEffectStylesAsync();
-  for (const s of styles) map.set(s.name, s);
+  for (const s of styles) map.set(normalizeStyleName(s.name), s);
   return map;
 }
 
@@ -304,13 +655,13 @@ function computeDiffs(
         }
       }
     } else if (token.type === "typography") {
-      const styleName = styleNameFromPath(token.path);
+      const styleName = normalizeStyleName(styleNameFromPath(token.path));
       if (!textStyles.has(styleName)) {
         diffs.push({ kind: "added", path: token.path, type: token.type, newValue: token.value });
       }
       // Note: deep diff for typography not implemented yet (would require resolving all aliases)
     } else if (token.type === "shadow") {
-      const styleName = styleNameFromPath(token.path);
+      const styleName = normalizeStyleName(styleNameFromPath(token.path));
       if (!effectStyles.has(styleName)) {
         diffs.push({ kind: "added", path: token.path, type: token.type, newValue: token.value });
       }
@@ -345,6 +696,7 @@ async function getOrCreateCollection() {
 }
 
 async function applyVariables(tokens: FlatToken[], onProgress: (msg: string) => void): Promise<{ count: number, skipped: number, errors: string[], byPath: Map<string, Variable> }> {
+  await pagesReady;
   const collection = await getOrCreateCollection();
   const lightMode = collection.modes.find(m => m.name === "Light") || collection.modes[0];
   let darkMode = collection.modes.find(m => m.name === "Dark");
@@ -357,14 +709,18 @@ async function applyVariables(tokens: FlatToken[], onProgress: (msg: string) => 
 
   const existing = await figma.variables.getLocalVariablesAsync();
   const byName = new Map<string, Variable>();
+  const byId = new Map<string, Variable>();
   const byPath = new Map<string, Variable>();
   for (const v of existing) {
     if (v.variableCollectionId === collection.id) {
       byName.set(v.name, v);
+      byId.set(v.id, v);
       const dotPath = v.name.replace(/\//g, ".").replace(/\bbase\b/g, "_base");
       byPath.set(dotPath, v);
     }
   }
+  // Charge la map des IDs persistés (snapshot précédent) pour résister aux renames
+  const pathToId = await loadPathToIdMap();
 
   let count = 0;
   let skipped = 0;
@@ -386,9 +742,19 @@ async function applyVariables(tokens: FlatToken[], onProgress: (msg: string) => 
       }
 
       const figmaName = tokenPathToFigmaName(token.path);
-      let variable = byName.get(figmaName);
+      // Lookup par ID en priorité (résiste aux renames), puis par nom, sinon créer
+      const expectedId = pathToId[token.path];
+      let variable: Variable | undefined;
+      if (expectedId) variable = byId.get(expectedId);
+      if (!variable) variable = byName.get(figmaName);
       if (!variable) {
         variable = figma.variables.createVariable(figmaName, collection, figmaType);
+        byName.set(figmaName, variable);
+        byId.set(variable.id, variable);
+        byPath.set(token.path, variable);
+      } else {
+        // Restore le nom si l'utilisateur l'avait renommé
+        if (variable.name !== figmaName) variable.name = figmaName;
         byName.set(figmaName, variable);
         byPath.set(token.path, variable);
       }
@@ -432,11 +798,14 @@ async function applyTextStyles(
   variablesByPath: Map<string, Variable>,
   onProgress: (msg: string) => void
 ): Promise<{ count: number, errors: string[] }> {
+  await pagesReady;
   const errors: string[] = [];
   let count = 0;
 
   const existing = await figma.getLocalTextStylesAsync();
-  const byName = new Map(existing.map(s => [s.name, s]));
+  const byName = new Map(existing.map(s => [normalizeStyleName(s.name), s]));
+  const byId = new Map(existing.map(s => [s.id, s]));
+  const pathToId = await loadPathToIdMap();
 
   // Pre-load all unique fonts we'll need
   const fontsToLoad = new Set<string>();
@@ -465,12 +834,20 @@ async function applyTextStyles(
       if (!v || typeof v !== "object") continue;
 
       const styleName = styleNameFromPath(token.path);
-      let textStyle = byName.get(styleName);
+      const lookupKey = normalizeStyleName(styleName);
+      // Lookup par ID puis par nom normalisé, sinon créer
+      const expectedId = pathToId[token.path];
+      let textStyle: TextStyle | undefined;
+      if (expectedId) textStyle = byId.get(expectedId);
+      if (!textStyle) textStyle = byName.get(lookupKey);
       if (!textStyle) {
         textStyle = figma.createTextStyle();
         textStyle.name = styleName;
-        byName.set(styleName, textStyle);
+      } else if (textStyle.name !== styleName) {
+        textStyle.name = styleName; // restore après rename
       }
+      byName.set(lookupKey, textStyle);
+      byId.set(textStyle.id, textStyle);
 
       // Resolve concrete values for fontFamily + fontWeight (combined into fontName)
       const family = resolveAlias(v.fontFamily, tree);
@@ -526,11 +903,14 @@ async function applyEffectStyles(
   shadowTokens: FlatToken[],
   onProgress: (msg: string) => void
 ): Promise<{ count: number, errors: string[] }> {
+  await pagesReady;
   const errors: string[] = [];
   let count = 0;
 
   const existing = await figma.getLocalEffectStylesAsync();
-  const byName = new Map(existing.map(s => [s.name, s]));
+  const byName = new Map(existing.map(s => [normalizeStyleName(s.name), s]));
+  const byId = new Map(existing.map(s => [s.id, s]));
+  const pathToId = await loadPathToIdMap();
 
   for (const token of shadowTokens) {
     try {
@@ -538,12 +918,19 @@ async function applyEffectStyles(
       if (!v || typeof v !== "object") continue;
 
       const styleName = styleNameFromPath(token.path);
-      let effectStyle = byName.get(styleName);
+      const lookupKey = normalizeStyleName(styleName);
+      const expectedId = pathToId[token.path];
+      let effectStyle: EffectStyle | undefined;
+      if (expectedId) effectStyle = byId.get(expectedId);
+      if (!effectStyle) effectStyle = byName.get(lookupKey);
       if (!effectStyle) {
         effectStyle = figma.createEffectStyle();
         effectStyle.name = styleName;
-        byName.set(styleName, effectStyle);
+      } else if (effectStyle.name !== styleName) {
+        effectStyle.name = styleName;
       }
+      byName.set(lookupKey, effectStyle);
+      byId.set(effectStyle.id, effectStyle);
 
       // Use light color for the effect (Figma effects don't support modes)
       const colorObj = v.color || {};
@@ -579,6 +966,46 @@ async function applyEffectStyles(
   return { count, errors };
 }
 
+// ---------- loadAllPagesAsync gate ----------
+// En mode "dynamic-page", certaines APIs (getLocalTextStylesAsync, etc.) peuvent
+// renvoyer des listes incomplètes tant que loadAllPagesAsync n'est pas résolu.
+// On gate toutes les opérations qui touchent aux styles/variables.
+const pagesReady: Promise<void> = (async () => {
+  try {
+    if (typeof (figma as any).loadAllPagesAsync === "function") {
+      await (figma as any).loadAllPagesAsync();
+    }
+  } catch (e) {
+    console.error("loadAllPagesAsync failed:", e);
+  }
+})();
+
+// ---------- Live desync detection ----------
+// Re-check drift quand l'utilisateur modifie le document (variables, styles, etc.)
+let desyncCheckTimer: any = null;
+function scheduleDesyncCheck() {
+  if (desyncCheckTimer) clearTimeout(desyncCheckTimer);
+  desyncCheckTimer = setTimeout(async () => {
+    desyncCheckTimer = null;
+    try {
+      const drifts = await checkLocalDesync();
+      figma.ui.postMessage({ type: "local-desync-computed", drifts });
+    } catch (e) {
+      console.error("Live desync check failed:", e);
+    }
+  }, 600);
+}
+
+pagesReady.then(() => {
+  try {
+    figma.on("documentchange", () => {
+      scheduleDesyncCheck();
+    });
+  } catch (e) {
+    console.error("Could not register documentchange listener:", e);
+  }
+});
+
 // ---------- Main message handler ----------
 figma.ui.onmessage = async (msg) => {
   try {
@@ -586,6 +1013,10 @@ figma.ui.onmessage = async (msg) => {
       const config = await loadConfig();
       const lastSyncedSha = await figma.clientStorage.getAsync("lastSyncedSha");
       const pollInterval = await figma.clientStorage.getAsync("pollInterval");
+      const lastAppliedSnapshot = await figma.clientStorage.getAsync(SNAPSHOT_KEY);
+      const hasAppliedSnapshot = !!lastAppliedSnapshot && Object.keys(lastAppliedSnapshot).length > 0;
+      // Cleanup d'un éventuel ancien snapshot V1 (orphelin sous l'ancienne clé)
+      try { await figma.clientStorage.deleteAsync("lastAppliedSnapshot"); } catch (e) {}
       // Détecte si une collection Somfy existe déjà (= sync précédent)
       const collections = await figma.variables.getLocalVariableCollectionsAsync();
       const hasExistingCollection = collections.some(c => c.name === "Somfy Tokens");
@@ -594,6 +1025,7 @@ figma.ui.onmessage = async (msg) => {
         config,
         lastSyncedSha,
         hasExistingCollection,
+        hasAppliedSnapshot,
         pollInterval
       });
     }
@@ -675,6 +1107,8 @@ figma.ui.onmessage = async (msg) => {
         allErrors.push(...esResult.errors);
       }
 
+      await saveAppliedSnapshot(cachedTokens, cachedTokenTree);
+
       figma.ui.postMessage({
         type: "apply-done",
         count: totalCount,
@@ -682,6 +1116,78 @@ figma.ui.onmessage = async (msg) => {
         errors: allErrors.slice(0, 5)
       });
       figma.notify(`✓ Synced ${totalCount} tokens (${totalSkipped} skipped)`);
+    }
+
+    else if (msg.type === "check-local-desync") {
+      const drifts = await checkLocalDesync();
+      figma.ui.postMessage({ type: "local-desync-computed", drifts });
+    }
+
+    else if (msg.type === "revert-local-changes") {
+      const snapshot: { [path: string]: { type: string; value: any } } | null =
+        await figma.clientStorage.getAsync(SNAPSHOT_KEY);
+      if (!snapshot || Object.keys(snapshot).length === 0) {
+        figma.ui.postMessage({ type: "error", message: "No sync snapshot found. Apply tokens from GitHub first." });
+        return;
+      }
+      const paths: string[] = msg.paths || [];
+      const includes = (path: string) => paths.length === 0 || paths.includes(path);
+
+      const varTokens: FlatToken[] = [];
+      const textStyleEntries: [string, any, string | undefined][] = [];
+      const effectStyleEntries: [string, any, string | undefined][] = [];
+
+      for (const [path, entry] of Object.entries(snapshot)) {
+        if (!includes(path)) continue;
+        if (SUPPORTED_VAR_TYPES.has(entry.type)) {
+          varTokens.push({ path, type: entry.type, value: entry.value, isPlaceholder: false });
+        } else if (entry.type === "typography") {
+          textStyleEntries.push([path, entry.value, (entry as any).figmaId]);
+        } else if (entry.type === "shadow") {
+          effectStyleEntries.push([path, entry.value, (entry as any).figmaId]);
+        }
+      }
+
+      let count = 0;
+      const errors: string[] = [];
+
+      if (varTokens.length > 0) {
+        figma.ui.postMessage({ type: "progress", message: "Reverting variables…" });
+        const result = await applyVariables(varTokens, (m) =>
+          figma.ui.postMessage({ type: "progress", message: m })
+        );
+        count += result.count;
+        errors.push(...result.errors);
+      }
+
+      if (textStyleEntries.length > 0) {
+        figma.ui.postMessage({ type: "progress", message: "Reverting text styles…" });
+        for (const [path, expected, figmaId] of textStyleEntries) {
+          try {
+            const ok = await revertTextStyleFromSnapshot(path, expected, figmaId);
+            if (ok) count++;
+          } catch (e: any) {
+            const msg = e && e.message ? e.message : String(e);
+            if (errors.length < 5) errors.push(`${path}: ${msg}`);
+          }
+        }
+      }
+
+      if (effectStyleEntries.length > 0) {
+        figma.ui.postMessage({ type: "progress", message: "Reverting effect styles…" });
+        for (const [path, expected, figmaId] of effectStyleEntries) {
+          try {
+            const ok = await revertEffectStyleFromSnapshot(path, expected, figmaId);
+            if (ok) count++;
+          } catch (e: any) {
+            const msg = e && e.message ? e.message : String(e);
+            if (errors.length < 5) errors.push(`${path}: ${msg}`);
+          }
+        }
+      }
+
+      figma.ui.postMessage({ type: "revert-done", count, errors: errors.slice(0, 5) });
+      figma.notify(`↩ Reverted ${count} item${count !== 1 ? "s" : ""} to last sync`);
     }
 
     else if (msg.type === "close") {
