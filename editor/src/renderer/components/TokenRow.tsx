@@ -11,6 +11,7 @@ interface Props {
   onRename: (oldPath: string[], newName: string) => void;
   onValueChange: (path: string[], value: any) => void;
   onValueChangeMode: (path: string[], mode: 'light' | 'dark', value: any) => void;
+  onDelete: (path: string[]) => void;
 }
 
 export const TokenRow: React.FC<Props> = ({
@@ -22,6 +23,7 @@ export const TokenRow: React.FC<Props> = ({
   onRename,
   onValueChange,
   onValueChangeMode,
+  onDelete,
 }) => {
   // Editable last segment of the path
   const lastSeg = token.path[token.path.length - 1];
@@ -67,6 +69,17 @@ export const TokenRow: React.FC<Props> = ({
           </span>
         )}
         {token.type && <span className="token-type-badge">{token.type}</span>}
+        <button
+          className="token-delete"
+          title={
+            referenceCount > 0
+              ? `Suppression bloquée : ${referenceCount} token(s) référence(nt) celui-ci`
+              : 'Supprimer ce token'
+          }
+          onClick={() => onDelete(token.path)}
+        >
+          🗑
+        </button>
       </div>
 
       <div className="token-values">

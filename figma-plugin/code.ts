@@ -233,6 +233,84 @@ async function loadPathToIdMap(): Promise<{ [path: string]: string }> {
   return map;
 }
 
+/**
+ * Supprime les Variables / Text Styles / Effect Styles qui étaient présents dans
+ * le snapshot précédent mais qui n'ont plus de token correspondant dans le JSON courant.
+ * Ne touche que ce qu'on a créé nous-mêmes (tracé via figmaId dans le snapshot).
+ * Retourne le nombre d'éléments supprimés.
+ */
+async function cleanupOrphans(cachedTokens: FlatToken[]): Promise<{ removed: number; errors: string[] }> {
+  await pagesReady;
+
+  const expectedPaths = new Set<string>();
+  for (const t of cachedTokens) {
+    if (isEmptyValue(t)) continue;
+    expectedPaths.add(t.path);
+  }
+
+  const errors: string[] = [];
+  let removed = 0;
+
+  // 1. Variables : scan direct de la collection "Somfy Tokens" (ne dépend pas du snapshot)
+  const collections = await figma.variables.getLocalVariableCollectionsAsync();
+  const collection = collections.find(c => c.name === "Somfy Tokens");
+  if (collection) {
+    for (const varId of collection.variableIds) {
+      const variable = await figma.variables.getVariableByIdAsync(varId);
+      if (!variable) continue;
+      const dotPath = variable.name.replace(/\//g, ".").replace(/\bbase\b/g, "_base");
+      if (expectedPaths.has(dotPath)) continue;
+      console.log("[cleanupOrphans] orphan variable:", variable.name, "→ path:", dotPath);
+      try {
+        variable.remove();
+        removed++;
+      } catch (e: any) {
+        console.error("[cleanupOrphans] failed to remove variable", variable.name, e);
+        errors.push(`Failed to remove ${variable.name}: ${e.message || e}`);
+      }
+    }
+  }
+
+  // 2. Text Styles / Effect Styles : on s'appuie sur le snapshot (pas de namespace fiable pour scanner)
+  const snap: any = await figma.clientStorage.getAsync(SNAPSHOT_KEY);
+  if (snap) {
+    for (const path of Object.keys(snap)) {
+      if (expectedPaths.has(path)) continue;
+      const entry = snap[path];
+      const id: string | undefined = entry && entry.figmaId;
+      const type: string | undefined = entry && entry.type;
+      if (!id) continue;
+      if (type !== "typography" && type !== "shadow") continue; // variables already handled above
+
+      try {
+        if (type === "typography") {
+          const styles = await figma.getLocalTextStylesAsync();
+          const style = styles.find(s => s.id === id);
+          if (style) {
+            console.log("[cleanupOrphans] orphan text style:", path);
+            style.remove();
+            removed++;
+          }
+        } else if (type === "shadow") {
+          const styles = await figma.getLocalEffectStylesAsync();
+          const style = styles.find(s => s.id === id);
+          if (style) {
+            console.log("[cleanupOrphans] orphan effect style:", path);
+            style.remove();
+            removed++;
+          }
+        }
+      } catch (e: any) {
+        console.error("[cleanupOrphans] failed to remove style", path, e);
+        errors.push(`Failed to remove ${path}: ${e.message || e}`);
+      }
+    }
+  }
+
+  console.log("[cleanupOrphans] done. removed=", removed);
+  return { removed, errors };
+}
+
 // Lecture des propriétés clés d'un TextStyle dans un format normalisé
 function readTextStyleProps(style: TextStyle) {
   const lh = style.lineHeight;
@@ -628,7 +706,8 @@ function computeDiffs(
   textStyles: Map<string, TextStyle>,
   effectStyles: Map<string, EffectStyle>,
   lightModeId: string,
-  darkModeId: string
+  darkModeId: string,
+  snapshot?: { [path: string]: { type: string; value: any; figmaId?: string } } | null
 ): Diff[] {
   const diffs: Diff[] = [];
   const seen = new Set<string>();
@@ -677,6 +756,36 @@ function computeDiffs(
         type: local.type,
         oldValue: normalizeOldValue(local, local.type, lightModeId, darkModeId)
       });
+    }
+  }
+
+  // Detect removed typography / shadow tokens via the previous apply snapshot.
+  // (Variables already covered above via localMap; styles need the snapshot to know which Figma items we created.)
+  if (snapshot) {
+    const textStylesById = new Map<string, TextStyle>();
+    textStyles.forEach(s => textStylesById.set(s.id, s));
+    const effectStylesById = new Map<string, EffectStyle>();
+    effectStyles.forEach(s => effectStylesById.set(s.id, s));
+
+    for (const snapPath of Object.keys(snapshot)) {
+      if (seen.has(snapPath)) continue; // still present in remote
+      const entry = snapshot[snapPath];
+      if (!entry || !entry.figmaId) continue;
+      if (entry.type === "typography" && textStylesById.has(entry.figmaId)) {
+        diffs.push({
+          kind: "removed",
+          path: snapPath,
+          type: "typography",
+          oldValue: entry.value
+        });
+      } else if (entry.type === "shadow" && effectStylesById.has(entry.figmaId)) {
+        diffs.push({
+          kind: "removed",
+          path: snapPath,
+          type: "shadow",
+          oldValue: entry.value
+        });
+      }
     }
   }
 
@@ -1057,7 +1166,8 @@ figma.ui.onmessage = async (msg) => {
       const lightModeId = collection ? (collection.modes.find(m => m.name === "Light")?.modeId || collection.modes[0]?.modeId || "") : "";
       const darkModeId = collection ? (collection.modes.find(m => m.name === "Dark")?.modeId || "") : "";
 
-      const diffs = computeDiffs(tokens, localMap, textStyles, effectStyles, lightModeId, darkModeId);
+      const snapshot = await figma.clientStorage.getAsync(SNAPSHOT_KEY);
+      const diffs = computeDiffs(tokens, localMap, textStyles, effectStyles, lightModeId, darkModeId, snapshot);
       figma.ui.postMessage({
         type: "diffs-computed",
         diffs,
@@ -1107,15 +1217,23 @@ figma.ui.onmessage = async (msg) => {
         allErrors.push(...esResult.errors);
       }
 
+      // 4. Cleanup: remove Variables/TextStyles/EffectStyles that no longer have a matching token.
+      // Must run before saveAppliedSnapshot so we still have the previous snapshot for ID lookup.
+      figma.ui.postMessage({ type: "progress", message: "Cleaning up removed tokens…" });
+      const cleanup = await cleanupOrphans(cachedTokens);
+      allErrors.push(...cleanup.errors);
+
       await saveAppliedSnapshot(cachedTokens, cachedTokenTree);
 
       figma.ui.postMessage({
         type: "apply-done",
         count: totalCount,
         skipped: totalSkipped,
+        removed: cleanup.removed,
         errors: allErrors.slice(0, 5)
       });
-      figma.notify(`✓ Synced ${totalCount} tokens (${totalSkipped} skipped)`);
+      const removedSuffix = cleanup.removed > 0 ? `, ${cleanup.removed} removed` : "";
+      figma.notify(`✓ Synced ${totalCount} tokens${removedSuffix} (${totalSkipped} skipped)`);
     }
 
     else if (msg.type === "check-local-desync") {

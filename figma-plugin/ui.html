@@ -1282,7 +1282,8 @@
     } else if (msg.type === 'apply-done') {
       $('status').textContent = '';
       const skipped = msg.skipped ? ` (${msg.skipped} skipped)` : '';
-      toast(`✓ Applied ${msg.count} tokens${skipped}`);
+      const removed = msg.removed ? `, ${msg.removed} removed` : '';
+      toast(`✓ Applied ${msg.count} tokens${removed}${skipped}`);
       if (lastKnownRemoteSha) {
         lastSyncedSha = lastKnownRemoteSha;
         bannerDismissedForSha = null;

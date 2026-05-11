@@ -2,8 +2,139 @@ import { TokenFile, TokenGroup, Token, FlatToken } from '../../shared/types';
 
 const LAYERS = ['primitives', 'semantic', 'composite', 'component'];
 
+export const ALL_LAYERS = LAYERS;
+
 function isToken(node: any): node is Token {
   return node && typeof node === 'object' && '$value' in node;
+}
+
+export { isToken };
+
+/**
+ * Check whether a node is a group (a non-token nested object).
+ */
+export function isGroup(node: any): node is TokenGroup {
+  return node && typeof node === 'object' && !isToken(node) && !Array.isArray(node);
+}
+
+/**
+ * Get any node (token OR group) at a path. Returns null if not found.
+ */
+export function getNodeAt(tree: TokenFile, path: string[]): any {
+  let node: any = tree;
+  for (const seg of path) {
+    if (!node || typeof node !== 'object') return null;
+    node = node[seg];
+    if (node === undefined) return null;
+  }
+  return node;
+}
+
+/**
+ * List the immediate children at a path. Returns [] if path doesn't lead to a group.
+ * Each child has its name and a flag indicating whether it's a group or a token.
+ */
+export function getChildrenAt(
+  tree: TokenFile,
+  path: string[]
+): Array<{ name: string; isGroup: boolean }> {
+  if (path.length === 0) {
+    return LAYERS.filter((l) => isGroup((tree as any)[l])).map((l) => ({ name: l, isGroup: true }));
+  }
+  const node = getNodeAt(tree, path);
+  if (!isGroup(node)) return [];
+  return Object.keys(node).map((name) => ({
+    name,
+    isGroup: isGroup(node[name]),
+  }));
+}
+
+/**
+ * Add a token at parentPath/name. Throws if parentPath isn't a group, or if name collides.
+ * Mutates the tree.
+ */
+export function addToken(
+  tree: TokenFile,
+  parentPath: string[],
+  name: string,
+  token: Token
+): void {
+  if (!name) throw new Error('Le nom du token est requis');
+  const parent = getNodeAt(tree, parentPath);
+  if (!isGroup(parent)) {
+    throw new Error(`Le chemin ${parentPath.join('.')} n'est pas un groupe valide`);
+  }
+  if (parent[name] !== undefined) {
+    throw new Error(`Un token ou groupe nommé "${name}" existe déjà à cet emplacement`);
+  }
+  parent[name] = token;
+}
+
+/**
+ * Add an empty group at parentPath/name. Throws on collision.
+ * If parentPath is empty, creates a top-level layer.
+ * Mutates the tree.
+ */
+export function addGroup(tree: TokenFile, parentPath: string[], name: string): void {
+  if (!name) throw new Error('Le nom du groupe est requis');
+  if (parentPath.length === 0) {
+    if ((tree as any)[name] !== undefined) {
+      throw new Error(`Un layer/groupe nommé "${name}" existe déjà`);
+    }
+    (tree as any)[name] = {};
+    return;
+  }
+  const parent = getNodeAt(tree, parentPath);
+  if (!isGroup(parent)) {
+    throw new Error(`Le chemin ${parentPath.join('.')} n'est pas un groupe valide`);
+  }
+  if (parent[name] !== undefined) {
+    throw new Error(`Un token ou groupe nommé "${name}" existe déjà à cet emplacement`);
+  }
+  parent[name] = {};
+}
+
+/**
+ * Delete any node (token OR group) at a path. Mutates the tree.
+ * Returns true if a node was deleted, false otherwise.
+ */
+export function deleteNodeAt(tree: TokenFile, path: string[]): boolean {
+  if (path.length === 0) return false;
+  const parentPath = path.slice(0, -1);
+  const last = path[path.length - 1];
+  const parent = parentPath.length === 0 ? (tree as any) : getNodeAt(tree, parentPath);
+  if (!parent || typeof parent !== 'object') return false;
+  if (parent[last] === undefined) return false;
+  delete parent[last];
+  return true;
+}
+
+/**
+ * Find all tokens whose value references any token under the given path prefix.
+ * Used to block deletion of a group containing tokens that are referenced elsewhere.
+ * Returns the paths of the referencing tokens (those OUTSIDE the prefix).
+ */
+export function findReferencesUnder(tree: TokenFile, prefixPath: string[]): {
+  referenced: string;       // full name of the referenced token under the prefix
+  referencedBy: string[];   // full name of the referencing token (outside the prefix)
+}[] {
+  const flat = flattenTokens(tree);
+  const prefix = prefixPath.join('.');
+  const tokensUnder = flat.filter((t) => t.fullName === prefix || t.fullName.startsWith(prefix + '.'));
+  const results: { referenced: string; referencedBy: string[] }[] = [];
+
+  for (const target of tokensUnder) {
+    const refs = findReferences(tree, target.fullName).filter(
+      (p) => !p.join('.').startsWith(prefix + '.') && p.join('.') !== prefix
+    );
+    if (refs.length > 0) {
+      results.push({
+        referenced: target.fullName,
+        referencedBy: refs.map((p) => p.join('.')),
+      });
+    }
+  }
+  return results;
 }
 
 /**
@@ -179,4 +310,36 @@ export function isAlias(value: any): boolean {
 
 export function aliasTarget(value: string): string {
   return value.trim().replace(/^\{|\}$/g, '');
+}
+
+/**
+ * Recursively resolve an alias chain to its literal value.
+ * Stops on first literal, on missing target, or after MAX_DEPTH to avoid infinite loops.
+ * For object values (typography, shadow), recursively resolves any nested alias inside.
+ */
+export function resolveValue(value: any, tree: TokenFile, depth = 0): any {
+  const MAX_DEPTH = 10;
+  if (depth > MAX_DEPTH) return value;
+
+  if (typeof value === 'string') {
+    if (!isAlias(value)) return value;
+    const targetPath = aliasTarget(value).split('.');
+    const target = getTokenAt(tree, targetPath);
+    if (!target) return value; // broken alias — keep as-is
+    return resolveValue(target.$value, tree, depth + 1);
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((v) => resolveValue(v, tree, depth + 1));
+  }
+
+  if (value && typeof value === 'object') {
+    const out: any = {};
+    for (const k of Object.keys(value)) {
+      out[k] = resolveValue(value[k], tree, depth + 1);
+    }
+    return out;
+  }
+
+  return value;
 }
