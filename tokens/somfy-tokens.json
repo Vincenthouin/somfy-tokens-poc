@@ -676,11 +676,11 @@
           },
           "regular": {
             "$type": "fontWeight",
-            "$value": 500
+            "$value": 400
           },
           "medium": {
             "$type": "fontWeight",
-            "$value": 800
+            "$value": 500
           }
         },
         "size": {
