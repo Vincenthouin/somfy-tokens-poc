@@ -52,7 +52,7 @@
           "secondary": {
             "$type": "color",
             "$value": {
-              "light": "#1770de",
+              "light": "#CACFD5",
               "dark": "#95FF01"
             }
           },
@@ -676,11 +676,11 @@
           },
           "regular": {
             "$type": "fontWeight",
-            "$value": 400
+            "$value": 500
           },
           "medium": {
             "$type": "fontWeight",
-            "$value": 500
+            "$value": 800
           }
         },
         "size": {
@@ -851,7 +851,7 @@
           "content": {
             "$type": "color",
             "$value": {
-              "light": "#FFFFFF",
+              "light": "",
               "dark": ""
             }
           },
