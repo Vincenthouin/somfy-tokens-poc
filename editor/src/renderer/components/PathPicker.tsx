@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { TokenFile } from '../../shared/types';
-import { getChildrenAt, ALL_LAYERS } from '../utils/tokenTree';
+import { getChildrenAt } from '../utils/tokenTree';
 
 interface Props {
   tree: TokenFile;
@@ -8,7 +8,7 @@ interface Props {
   initialPath: string[];
   /** Called whenever the path changes (existing or pending new segments). */
   onChange: (path: string[]) => void;
-  /** Smallest allowed depth (e.g. 2 to force a layer + category minimum). */
+  /** Reserved for future depth validation — currently unused. */
   minDepth?: number;
 }
 
@@ -17,10 +17,11 @@ interface Props {
  * - dropdown of existing groups
  * - or "+ Nouveau groupe…" → free-text input that appends a new (pending) segment
  *
- * Returns the assembled path via onChange. The parent decides how to use it
- * (for adding a token at this group, or for adding a sub-group, etc.).
+ * The currently selected segment is always rendered as an option even if it isn't
+ * (yet) part of the tree — so a brand new group typed via "+ Nouveau" stays visible
+ * in the dropdown until the token is actually added.
  */
-export const PathPicker: React.FC<Props> = ({ tree, initialPath, onChange, minDepth = 1 }) => {
+export const PathPicker: React.FC<Props> = ({ tree, initialPath, onChange }) => {
   const [path, setPath] = useState<string[]>(initialPath);
   const [newSegmentInput, setNewSegmentInput] = useState<{ depth: number; value: string } | null>(
     null
@@ -33,26 +34,26 @@ export const PathPicker: React.FC<Props> = ({ tree, initialPath, onChange, minDe
 
   const renderLevel = (depth: number) => {
     const parentPath = path.slice(0, depth);
-    const children = getChildrenAt(tree, parentPath).filter((c) => c.isGroup);
+    const existing = getChildrenAt(tree, parentPath).filter((c) => c.isGroup);
     const selected = path[depth];
+    const label = depth === 0 ? 'layer' : 'groupe';
 
     // Inline input mode (creating a new segment at this depth)
     if (newSegmentInput && newSegmentInput.depth === depth) {
       return (
-        <div className="path-segment">
+        <div className="path-segment" key={`input-${depth}`}>
           <input
             type="text"
             autoFocus
-            placeholder="Nom du groupe"
+            placeholder={`Nom du ${label}`}
             value={newSegmentInput.value}
             onChange={(e) => setNewSegmentInput({ depth, value: e.target.value })}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 const name = newSegmentInput.value.trim();
                 if (!name) return;
-                // Collision check
-                if (children.some((c) => c.name === name)) {
-                  alert(`Un groupe "${name}" existe déjà à ce niveau.`);
+                if (existing.some((c) => c.name === name)) {
+                  alert(`Un ${label} "${name}" existe déjà à ce niveau.`);
                   return;
                 }
                 updatePath([...parentPath, name]);
@@ -63,7 +64,7 @@ export const PathPicker: React.FC<Props> = ({ tree, initialPath, onChange, minDe
             }}
             onBlur={() => {
               const name = newSegmentInput.value.trim();
-              if (name && !children.some((c) => c.name === name)) {
+              if (name && !existing.some((c) => c.name === name)) {
                 updatePath([...parentPath, name]);
               }
               setNewSegmentInput(null);
@@ -73,8 +74,12 @@ export const PathPicker: React.FC<Props> = ({ tree, initialPath, onChange, minDe
       );
     }
 
+    // Build the option list: existing groups + pending segment (if any) + "+ Nouveau"
+    const names = new Set(existing.map((c) => c.name));
+    if (selected && !names.has(selected)) names.add(selected);
+
     return (
-      <div className="path-segment">
+      <div className="path-segment" key={`select-${depth}`}>
         <select
           value={selected || ''}
           onChange={(e) => {
@@ -90,46 +95,25 @@ export const PathPicker: React.FC<Props> = ({ tree, initialPath, onChange, minDe
             }
           }}
         >
-          <option value="">— sélectionner —</option>
-          {children.map((c) => (
-            <option key={c.name} value={c.name}>
-              {c.name}
+          <option value="">— {label} —</option>
+          {Array.from(names).sort().map((name) => (
+            <option key={name} value={name}>
+              {name}
             </option>
           ))}
-          <option value="__NEW__">+ Nouveau groupe…</option>
+          <option value="__NEW__">+ Nouveau {label}…</option>
         </select>
       </div>
     );
   };
 
-  // Build the list of levels to display: one per existing path segment + one to pick the next
+  // Display one segment per existing path entry + one to pick the next.
   const levels: number[] = [];
   for (let i = 0; i <= path.length; i++) levels.push(i);
 
-  // Special case: at depth 0, show layer selector instead of children of root
   return (
     <div className="path-picker">
-      {/* Layer level (depth 0) — restricted to known layers */}
-      <div className="path-segment">
-        <select
-          value={path[0] || ''}
-          onChange={(e) => {
-            const v = e.target.value;
-            updatePath(v ? [v] : []);
-          }}
-        >
-          <option value="">— layer —</option>
-          {ALL_LAYERS.map((l) => (
-            <option key={l} value={l}>
-              {l}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {/* Subsequent levels */}
-      {path.length >= 1 && levels.slice(1).map((depth) => <React.Fragment key={depth}>{renderLevel(depth)}</React.Fragment>)}
-
+      {levels.map((depth) => renderLevel(depth))}
       <div className="path-preview">
         <span className="muted">Chemin :</span>{' '}
         <span className="mono">{path.join('.') || '—'}</span>

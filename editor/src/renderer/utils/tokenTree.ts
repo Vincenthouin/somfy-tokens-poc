@@ -313,6 +313,63 @@ export function aliasTarget(value: string): string {
 }
 
 /**
+ * Whether a token has at least one "empty" value somewhere — either the top-level
+ * value is an empty string, or one of its mode entries (light/dark) is.
+ * Used to surface ⚠ warnings in the UI without blocking the save.
+ */
+export function tokenHasEmptyValue(value: any): boolean {
+  if (value === null || value === undefined) return true;
+  if (typeof value === 'string') return value.trim() === '';
+  if (Array.isArray(value)) return false; // numeric tuples (cubicBezier) etc.
+  if (typeof value === 'object') {
+    for (const v of Object.values(value)) {
+      if (v === null || v === undefined) return true;
+      if (typeof v === 'string' && v.trim() === '') return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Walk every alias reference inside a value and return the list of broken targets
+ * (alias strings whose resolved path doesn't exist in the tree).
+ */
+function collectBrokenAliasesInValue(value: any, tree: TokenFile, acc: string[]) {
+  if (typeof value === 'string') {
+    if (isAlias(value)) {
+      const targetPath = aliasTarget(value).split('.');
+      if (!getTokenAt(tree, targetPath)) acc.push(aliasTarget(value));
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const v of value) collectBrokenAliasesInValue(v, tree, acc);
+    return;
+  }
+  if (value && typeof value === 'object') {
+    for (const k of Object.keys(value)) collectBrokenAliasesInValue(value[k], tree, acc);
+  }
+}
+
+/**
+ * For each token in the tree, list any alias references whose target doesn't exist.
+ * Keyed by the token's fullName for fast lookup in the renderer.
+ */
+export function findBrokenAliases(tree: TokenFile): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const t of flattenTokens(tree)) {
+    const broken: string[] = [];
+    collectBrokenAliasesInValue(t.value, tree, broken);
+    if (t.modes) {
+      collectBrokenAliasesInValue(t.modes.light, tree, broken);
+      collectBrokenAliasesInValue(t.modes.dark, tree, broken);
+    }
+    if (broken.length > 0) out.set(t.fullName, Array.from(new Set(broken)));
+  }
+  return out;
+}
+
+/**
  * Recursively resolve an alias chain to its literal value.
  * Stops on first literal, on missing target, or after MAX_DEPTH to avoid infinite loops.
  * For object values (typography, shadow), recursively resolves any nested alias inside.

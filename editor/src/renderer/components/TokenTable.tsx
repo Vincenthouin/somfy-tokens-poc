@@ -7,6 +7,8 @@ interface RowMeta {
   isModified: boolean;
   isAdded: boolean;
   refCount: number;
+  brokenAliases?: string[];
+  hasEmpty?: boolean;
 }
 
 interface Props {
@@ -19,6 +21,10 @@ interface Props {
   onDescriptionChange: (path: string[], description: string) => void;
   onRename: (oldPath: string[], newName: string) => void;
   onDelete: (path: string[]) => void;
+  // Multi-select
+  selected: Set<string>;
+  onToggleSelect: (fullName: string) => void;
+  onToggleSelectAll: (tokens: FlatToken[]) => void;
 }
 
 const COMPLEX_TYPES = new Set(['typography', 'shadow', 'border']);
@@ -38,12 +44,29 @@ export const TokenTable: React.FC<Props> = ({
   onDescriptionChange,
   onRename,
   onDelete,
+  selected,
+  onToggleSelect,
+  onToggleSelectAll,
 }) => {
+  const allSelected = tokens.length > 0 && tokens.every((t) => selected.has(t.fullName));
+  const someSelected = !allSelected && tokens.some((t) => selected.has(t.fullName));
   return (
     <div className="token-table-wrap">
       <table className="token-table">
         <thead>
           <tr>
+            <th className="th-check">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                ref={(el) => {
+                  if (el) el.indeterminate = someSelected;
+                }}
+                onChange={() => onToggleSelectAll(tokens)}
+                onClick={(e) => e.stopPropagation()}
+                aria-label="Tout sélectionner"
+              />
+            </th>
             <th className="th-name">Name</th>
             <th className="th-value">Value</th>
             <th className="th-resolved">Resolved value</th>
@@ -61,13 +84,35 @@ export const TokenTable: React.FC<Props> = ({
             return (
               <tr
                 key={t.fullName}
-                className={`tr-token ${status} ${isSelected ? 'selected' : ''}`}
+                className={`tr-token ${status} ${isSelected ? 'selected' : ''} ${selected.has(t.fullName) ? 'multi-selected' : ''}`}
                 onClick={() => onSelect(t.path)}
               >
+                <td className="td-check">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(t.fullName)}
+                    onChange={() => onToggleSelect(t.fullName)}
+                    onClick={(e) => e.stopPropagation()}
+                    aria-label={`Sélectionner ${t.fullName}`}
+                  />
+                </td>
                 <td className="td-name">
                   <span className="td-name-prefix">{t.path.slice(0, -1).join('.')}.</span>
                   <NameInput token={t} onRename={onRename} />
                   {m?.refCount ? <span className="td-name-refs" title={`${m.refCount} ref(s)`}>↩{m.refCount}</span> : null}
+                  {m?.brokenAliases?.length ? (
+                    <span
+                      className="td-name-broken"
+                      title={`Alias cassé(s) :\n${m.brokenAliases.join('\n')}`}
+                    >
+                      ⚠ alias
+                    </span>
+                  ) : null}
+                  {m?.hasEmpty ? (
+                    <span className="td-name-empty" title="Une ou plusieurs valeurs sont vides">
+                      ⚠ vide
+                    </span>
+                  ) : null}
                 </td>
                 <td className="td-value">
                   <TokenValueCell

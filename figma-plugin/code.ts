@@ -148,7 +148,17 @@ function rgbToHex(rgb: any): string {
 }
 
 function normalizeColor(v: any): string {
-  if (typeof v === "string") return v.toUpperCase().trim();
+  if (typeof v === "string") {
+    let s = v.trim();
+    if (s.startsWith("#")) s = s.slice(1);
+    // Expand short hex forms (#RGB → #RRGGBB, #RGBA → #RRGGBBAA)
+    if (s.length === 3 || s.length === 4) {
+      s = s.split("").map((c) => c + c).join("");
+    }
+    // Strip implicit fully-opaque alpha (FF) so it matches rgbToHex output
+    if (s.length === 8 && s.slice(6, 8).toUpperCase() === "FF") s = s.slice(0, 6);
+    return "#" + s.toUpperCase();
+  }
   if (v && typeof v === "object" && "r" in v) return rgbToHex(v);
   return "";
 }
@@ -400,6 +410,11 @@ async function checkLocalDesync(): Promise<DriftItem[]> {
   const effectStylesByName = new Map(effectStyles.map(s => [normalizeStyleName(s.name), s]));
   const effectStylesById = new Map(effectStyles.map(s => [s.id, s]));
 
+  // The current JSON tokens (last fetched). Used as a fallback: if Figma matches
+  // the current JSON value, we don't surface drift even if the snapshot is stale.
+  const cachedByPath = new Map<string, FlatToken>();
+  for (const t of cachedTokens) cachedByPath.set(t.path, t);
+
   const drifts: DriftItem[] = [];
 
   for (const [path, entry] of Object.entries(snapshot)) {
@@ -428,9 +443,20 @@ async function checkLocalDesync(): Promise<DriftItem[]> {
       const currentDotPath = [...localMap.entries()].find(([_, v]) => v.id === local.id)?.[0];
       const isRenamed = lookedUpById && currentDotPath && currentDotPath !== path;
 
-      const localSnap = buildLocalSnapshot(local, entry.type, lightId, darkId);
+      const localSnap = buildLocalSnapshot(local, entry.type, lightId, darkId, entry.value);
       const expectedSnap = buildRemoteSnapshot({ path, type: entry.type, value: entry.value, isPlaceholder: false });
-      const valueDiffers = localSnap !== expectedSnap;
+      let valueDiffers = localSnap !== expectedSnap;
+
+      // Fallback: if the snapshot is stale, check whether Figma matches the current JSON.
+      // Use the JSON's mode definition (not the snapshot's) so that newly-emptied modes don't drift.
+      if (valueDiffers) {
+        const cached = cachedByPath.get(path);
+        if (cached) {
+          const remoteSnap = buildRemoteSnapshot(cached);
+          const localSnapVsCached = buildLocalSnapshot(local, entry.type, lightId, darkId, cached.value);
+          if (localSnapVsCached === remoteSnap) valueDiffers = false;
+        }
+      }
 
       if (isRenamed) {
         drifts.push({
@@ -659,13 +685,28 @@ function isEmptyValue(token: FlatToken): boolean {
   return false;
 }
 
+// For a color value (string or {light, dark}), determine which modes carry an actual color.
+// Modes with empty/missing values are considered "not defined" and skipped in comparisons.
+function definedColorModes(v: any): { light: boolean; dark: boolean } {
+  const hasLight = (x: any) => typeof x === "string" && x.trim() !== "";
+  if (v && typeof v === "object" && ("light" in v || "dark" in v)) {
+    return { light: hasLight(v.light), dark: hasLight(v.dark) };
+  }
+  return { light: hasLight(v), dark: false };
+}
+
 function buildRemoteSnapshot(token: FlatToken): string {
   if (token.type === "color") {
     const v = token.value;
-    if (v && typeof v === "object" && "light" in v) {
-      return `L:${normalizeColor(v.light)}|D:${normalizeColor(v.dark)}`;
+    const modes = definedColorModes(v);
+    const parts: string[] = [];
+    if (v && typeof v === "object" && ("light" in v || "dark" in v)) {
+      if (modes.light) parts.push(`L:${normalizeColor(v.light)}`);
+      if (modes.dark) parts.push(`D:${normalizeColor(v.dark)}`);
+    } else if (modes.light) {
+      parts.push(`L:${normalizeColor(v)}`);
     }
-    return `L:${normalizeColor(v)}`;
+    return parts.join("|");
   }
   if (token.type === "dimension") {
     const n = parseDimension(token.value);
@@ -682,10 +723,21 @@ function buildRemoteSnapshot(token: FlatToken): string {
   return JSON.stringify(token.value);
 }
 
-function buildLocalSnapshot(local: any, type: string, lightId: string, darkId: string): string {
+function buildLocalSnapshot(
+  local: any,
+  type: string,
+  lightId: string,
+  darkId: string,
+  remoteValue?: any
+): string {
   // type here is the REMOTE token type (from JSON): color, dimension, number, fontWeight, fontFamily
   if (type === "color") {
-    return `L:${normalizeColor(local.values[lightId])}|D:${normalizeColor(local.values[darkId])}`;
+    // Only include modes that are defined in the remote — undefined modes shouldn't trigger drift.
+    const modes = definedColorModes(remoteValue);
+    const parts: string[] = [];
+    if (modes.light) parts.push(`L:${normalizeColor(local.values[lightId])}`);
+    if (modes.dark) parts.push(`D:${normalizeColor(local.values[darkId])}`);
+    return parts.join("|");
   }
   if (type === "dimension" || type === "number" || type === "fontWeight") {
     const v = local.values[lightId];
@@ -721,7 +773,7 @@ function computeDiffs(
       if (!local) {
         diffs.push({ kind: "added", path: token.path, type: token.type, newValue: token.value });
       } else {
-        const localSnapshot = buildLocalSnapshot(local, token.type, lightModeId, darkModeId);
+        const localSnapshot = buildLocalSnapshot(local, token.type, lightModeId, darkModeId, token.value);
         const remoteSnapshot = buildRemoteSnapshot(token);
         if (localSnapshot !== remoteSnapshot) {
           diffs.push({

@@ -5,6 +5,8 @@ import { TokenDiff, totalChanges } from '../utils/diff';
 interface Props {
   tokens: FlatToken[];
   diff: TokenDiff | null;
+  brokenCount?: number;
+  emptyCount?: number;
 }
 
 const LAYER_LABELS: { [k: string]: string } = {
@@ -14,7 +16,7 @@ const LAYER_LABELS: { [k: string]: string } = {
   component: 'Component',
 };
 
-export const StatsStrip: React.FC<Props> = ({ tokens, diff }) => {
+export const StatsStrip: React.FC<Props> = ({ tokens, diff, brokenCount, emptyCount }) => {
   const total = tokens.length;
   const byLayer = new Map<string, number>();
   for (const t of tokens) {
@@ -44,6 +46,18 @@ export const StatsStrip: React.FC<Props> = ({ tokens, diff }) => {
           </div>
         </div>
       )}
+      {brokenCount && brokenCount > 0 ? (
+        <div className="stat-card stat-card-broken" title="Tokens avec un alias pointant vers une cible inexistante">
+          <div className="stat-label">Alias cassés</div>
+          <div className="stat-value">{brokenCount}</div>
+        </div>
+      ) : null}
+      {emptyCount && emptyCount > 0 ? (
+        <div className="stat-card stat-card-empty" title="Tokens avec au moins une valeur vide (souvent dark mode pas encore défini)">
+          <div className="stat-label">Valeurs vides</div>
+          <div className="stat-value">{emptyCount}</div>
+        </div>
+      ) : null}
     </div>
   );
 };

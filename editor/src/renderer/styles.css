@@ -588,6 +588,23 @@ code {
   margin-top: 12px;
   font-size: 12px;
 }
+.form-success {
+  background: rgba(63, 185, 80, 0.12);
+  border: 1px solid var(--added);
+  color: var(--added);
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+.settings-section-title {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin: 20px 0 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
 
 /* ----- Group actions in section header ----- */
 
@@ -1455,6 +1472,175 @@ code {
   border-radius: 8px;
   font-size: 11px;
 }
+/* ==========================
+   PROJECT PICKER
+   ========================== */
+
+.picker-screen {
+  height: 100vh;
+  overflow-y: auto;
+  background: var(--bg);
+}
+.picker-container {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 48px 32px;
+}
+.picker-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: 32px;
+  gap: 16px;
+}
+.picker-header h1 { margin: 0 0 4px; font-size: 24px; }
+.picker-header .muted { font-size: 13px; }
+.picker-loading,
+.picker-empty {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-muted);
+}
+.picker-empty button { margin-top: 16px; }
+.picker-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+.picker-card {
+  display: flex;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  transition: border-color 0.1s;
+}
+.picker-card:hover {
+  border-color: var(--text-muted);
+}
+.picker-card-main {
+  flex: 1;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  cursor: pointer;
+}
+.picker-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 500;
+}
+.picker-card-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+.picker-card-date {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.picker-card-actions {
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+}
+.picker-card-actions button {
+  background: transparent;
+  border: none;
+  padding: 8px 12px;
+  font-size: 13px;
+  border-radius: 0;
+  flex: 1;
+}
+.picker-card-actions button:hover { background: var(--surface-2); }
+.picker-card-actions button.danger:hover {
+  color: var(--removed);
+  background: rgba(248, 81, 73, 0.1);
+}
+
+/* ==========================
+   PROJECT WIZARD
+   ========================== */
+
+.source-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+.source-choice {
+  text-align: left;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  cursor: pointer;
+  transition: border-color 0.1s, background 0.1s;
+}
+.source-choice:hover {
+  border-color: var(--accent);
+  background: var(--surface);
+}
+.source-choice-title {
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 6px;
+}
+.source-choice-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+.import-file-path {
+  display: block;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  padding: 8px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  margin: 8px 0;
+  word-break: break-all;
+}
+
+/* ==========================
+   SOURCE BADGE + BACK BUTTON
+   ========================== */
+
+.source-badge {
+  display: inline-block;
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.source-github {
+  background: rgba(31, 111, 235, 0.15);
+  color: var(--accent);
+}
+.source-local {
+  background: rgba(163, 113, 247, 0.15);
+  color: var(--renamed);
+}
+
+.back-btn {
+  background: transparent;
+  border: none;
+  padding: 4px 8px;
+  font-size: 16px;
+  color: var(--text-muted);
+}
+.back-btn:hover { color: var(--text); }
+
 /* Inline name edit (last segment of path) */
 .name-input {
   background: transparent;
@@ -1524,4 +1710,88 @@ code {
   color: var(--removed);
   border-color: var(--removed);
   background: rgba(248, 81, 73, 0.1);
+}
+
+/* Broken alias badge in name column */
+.td-name-broken {
+  margin-left: 6px;
+  font-size: 10px;
+  background: rgba(248, 81, 73, 0.15);
+  color: var(--removed);
+  padding: 1px 6px;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+.td-name-empty {
+  margin-left: 6px;
+  font-size: 10px;
+  background: rgba(210, 153, 34, 0.15);
+  color: var(--modified);
+  padding: 1px 6px;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+.stat-card-empty {
+  border-color: var(--modified);
+}
+.stat-card-empty .stat-value {
+  color: var(--modified);
+}
+
+/* Broken stats card */
+.stat-card-broken {
+  border-color: var(--removed);
+}
+.stat-card-broken .stat-value {
+  color: var(--removed);
+}
+
+/* Multi-select checkbox column */
+.th-check,
+.td-check {
+  width: 36px;
+  padding: 8px 0 8px 12px !important;
+}
+.th-check input[type="checkbox"],
+.td-check input[type="checkbox"] {
+  cursor: pointer;
+}
+.tr-token.multi-selected {
+  background: rgba(31, 111, 235, 0.12);
+}
+.tr-token.multi-selected:hover {
+  background: rgba(31, 111, 235, 0.18);
+}
+
+/* Bulk actions floating bar */
+.bulk-bar {
+  position: fixed;
+  bottom: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 16px;
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 90;
+}
+.bulk-bar-count {
+  font-size: 13px;
+  font-weight: 500;
+}
+.bulk-bar-actions {
+  display: flex;
+  gap: 8px;
+}
+.bulk-bar-actions .danger {
+  background: rgba(248, 81, 73, 0.12);
+  border-color: var(--removed);
+  color: var(--removed);
+}
+.bulk-bar-actions .danger:hover {
+  background: rgba(248, 81, 73, 0.2);
 }

@@ -74,6 +74,30 @@ export interface GitHubConfig {
   filePath: string;         // path to JSON file in repo
 }
 
+// ---- Projects ----
+
+export type ProjectSource = 'github' | 'local';
+
+export interface Project {
+  id: string;
+  name: string;
+  source: ProjectSource;
+  github?: GitHubConfig;        // when source === 'github'
+  localTokens?: TokenFile;      // when source === 'local' (in-memory persisted via electron-store)
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ProjectSummary {
+  id: string;
+  name: string;
+  source: ProjectSource;
+  createdAt: number;
+  updatedAt: number;
+  // Repo info shown in the list for GitHub projects
+  repoLabel?: string;
+}
+
 // Commit info from history
 export interface CommitInfo {
   sha: string;
@@ -85,12 +109,27 @@ export interface CommitInfo {
 
 // IPC channel names
 export const IPC = {
+  // Legacy (kept for the boot-time migration only)
   GET_CONFIG: 'config:get',
   SAVE_CONFIG: 'config:save',
+  // Tokens (project-scoped)
   LOAD_TOKENS: 'tokens:load',
   CREATE_PR: 'tokens:create-pr',
+  SAVE_LOCAL: 'tokens:save-local',
+  EXPORT_JSON: 'tokens:export-json',
+  IMPORT_JSON: 'tokens:import-json',
   GET_HISTORY: 'tokens:get-history',
   GET_FILE_AT_COMMIT: 'tokens:get-file-at-commit',
   REVERT_TO_COMMIT: 'tokens:revert-to-commit',
+  // Projects
+  LIST_PROJECTS: 'projects:list',
+  CREATE_PROJECT: 'projects:create',
+  UPDATE_PROJECT: 'projects:update',
+  DELETE_PROJECT: 'projects:delete',
+  GET_CURRENT_PROJECT: 'projects:get-current',
+  SET_CURRENT_PROJECT: 'projects:set-current',
+  TEST_GITHUB: 'projects:test-github',
+  MIGRATE_TO_GITHUB: 'projects:migrate-to-github',
+  // Misc
   OPEN_EXTERNAL: 'shell:open-external',
 } as const;
