@@ -513,6 +513,154 @@
   }
   .diff-row.drift .accent { background: var(--warning); }
   .diff-row.drift .diff-badge { color: var(--warning); background: var(--warning-bg); }
+
+  .drift-actions { display: flex; gap: 6px; }
+  .btn-push {
+    background: var(--warning);
+    color: #000000;
+    border: 1px solid var(--warning-border);
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .btn-push:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-revert-ghost {
+    background: transparent;
+    border: 1px solid var(--warning-border);
+    color: var(--warning);
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: inherit;
+  }
+
+  /* Push modal */
+  .modal-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 200;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+  }
+  .modal-backdrop.show { display: flex; }
+  .modal {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    width: 100%;
+    max-width: 360px;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+  }
+  .modal h3 { margin: 0 0 10px; font-size: 13px; font-weight: 600; color: var(--text); }
+  .modal-summary {
+    display: flex;
+    gap: 8px;
+    font-size: 10px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+  .modal-chip {
+    background: var(--surface);
+    padding: 3px 8px;
+    border-radius: 4px;
+    color: var(--text-secondary);
+  }
+  .modal-chip.warn { background: var(--warning-bg); color: var(--warning); }
+  .modal-field { margin-bottom: 10px; }
+  .modal-field label {
+    display: block;
+    font-size: 10px;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .modal-field input,
+  .modal-field textarea {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 6px 8px;
+    font-size: 11px;
+    color: var(--text);
+    font-family: inherit;
+    resize: vertical;
+  }
+  .modal-field textarea { min-height: 56px; }
+  .modal-skipped {
+    background: var(--warning-bg);
+    border: 1px solid var(--warning-border);
+    padding: 8px 10px;
+    border-radius: 4px;
+    font-size: 10px;
+    color: var(--warning);
+    margin-bottom: 10px;
+    max-height: 80px;
+    overflow-y: auto;
+  }
+  .modal-skipped b { color: var(--warning); }
+  .modal-error {
+    background: rgba(239,68,68,0.12);
+    border: 1px solid rgba(239,68,68,0.4);
+    color: var(--danger);
+    padding: 8px 10px;
+    border-radius: 4px;
+    font-size: 10px;
+    margin-bottom: 10px;
+  }
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    margin-top: 12px;
+  }
+  .modal-actions button {
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: inherit;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+  }
+  .modal-actions button.primary {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+  }
+  .modal-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .modal-success {
+    text-align: center;
+    padding: 8px 0;
+  }
+  .modal-success .ok-icon {
+    font-size: 28px;
+    color: var(--success, #10b981);
+    margin-bottom: 6px;
+  }
+  .modal-success .pr-link {
+    display: block;
+    font-size: 10px;
+    color: var(--text-secondary);
+    word-break: break-all;
+    margin-top: 6px;
+    font-family: var(--mono, monospace);
+  }
 </style>
 </head>
 <body>
@@ -555,7 +703,10 @@
     <div id="drift-section" class="drift-section">
       <div class="drift-section-label">
         <span>⚠ Local Figma modifications</span>
-        <button id="btn-revert-all" style="background:transparent;border:1px solid var(--warning-border);color:var(--warning);padding:3px 8px;border-radius:4px;font-size:10px;font-weight:500;cursor:pointer;font-family:inherit;">↩ Revert all</button>
+        <div class="drift-actions">
+          <button id="btn-revert-all" class="btn-revert-ghost">↩ Revert all</button>
+          <button id="btn-push" class="btn-push">↑ Push to GitHub</button>
+        </div>
       </div>
       <div class="diff-list" id="drift-list"></div>
     </div>
@@ -656,6 +807,39 @@
 
 <div id="toast" class="toast"></div>
 
+<div id="push-modal" class="modal-backdrop">
+  <div class="modal" id="push-modal-form">
+    <h3>Push modifications to GitHub</h3>
+    <div class="modal-summary" id="push-summary"></div>
+    <div id="push-skipped" class="modal-skipped" style="display:none;"></div>
+    <div class="modal-field">
+      <label for="push-message">Commit message / PR title</label>
+      <input type="text" id="push-message" placeholder="ex: Update brand colors" />
+    </div>
+    <div class="modal-field">
+      <label for="push-description">Description (optional)</label>
+      <textarea id="push-description" rows="3" placeholder="Why this change…"></textarea>
+    </div>
+    <div id="push-error" class="modal-error" style="display:none;"></div>
+    <div class="modal-actions">
+      <button id="push-cancel">Cancel</button>
+      <button id="push-confirm" class="primary">Create PR</button>
+    </div>
+  </div>
+  <div class="modal" id="push-modal-success" style="display:none;">
+    <div class="modal-success">
+      <div class="ok-icon">✓</div>
+      <h3 style="margin-bottom:4px;">PR created</h3>
+      <div style="font-size:11px;color:var(--text-secondary);">Your modifications are ready for review.</div>
+      <a id="push-pr-link" class="pr-link" target="_blank" rel="noopener"></a>
+    </div>
+    <div class="modal-actions">
+      <button id="push-success-close">Close</button>
+      <button id="push-open-pr" class="primary">Open PR</button>
+    </div>
+  </div>
+</div>
+
 <script>
   const $ = (id) => document.getElementById(id);
   let currentConfig = {};
@@ -730,12 +914,32 @@
     if (localDrifts.length === 0) {
       banner.classList.remove('show');
       $('drift-section').style.display = 'none';
+      refreshActionButtons();
       return;
     }
     const n = localDrifts.length;
     $('desync-title').textContent = `Out of sync — ${n} token${n > 1 ? 's' : ''} drifted`;
-    $('desync-sub').textContent = `Variable(s) or style(s) were modified directly in Figma and aren't synced with the source of truth.`;
+    $('desync-sub').textContent = `Push or revert the local modifications before checking for updates.`;
     banner.classList.add('show');
+    refreshActionButtons();
+  }
+
+  // Check / Apply are disabled while a local drift is unresolved: applying would
+  // silently overwrite the Figma modification, and checking would pull a JSON
+  // that desynchronizes the snapshot.
+  function refreshActionButtons() {
+    const hasDrift = localDrifts.length > 0;
+    const fetchBtn = $('btn-fetch');
+    const applyBtn = $('btn-apply');
+    fetchBtn.disabled = hasDrift;
+    applyBtn.disabled = hasDrift || currentDiffs.length === 0;
+    const blockMsg = 'Resolve local modifications first (push or revert)';
+    fetchBtn.title = hasDrift ? blockMsg : '';
+    applyBtn.title = hasDrift ? blockMsg : '';
+    if (hasDrift) {
+      const el = $('update-banner');
+      if (el) el.classList.remove('show');
+    }
   }
 
   function renderDriftList() {
@@ -820,6 +1024,184 @@
   };
 
   $('btn-revert-all').onclick = doRevert;
+
+  // ---------- Push to GitHub ----------
+  let pendingPushTree = null;
+  let pendingPushApplied = [];
+
+  function generateDefaultPushMessage(applied) {
+    const counts = { modified: 0, renamed: 0, deleted: 0 };
+    applied.forEach(d => { counts[d.reason] = (counts[d.reason] || 0) + 1; });
+    const parts = [];
+    if (counts.modified) parts.push(`update ${counts.modified} token${counts.modified > 1 ? 's' : ''}`);
+    if (counts.renamed) parts.push(`rename ${counts.renamed}`);
+    if (counts.deleted) parts.push(`remove ${counts.deleted}`);
+    return parts.join(', ') || 'Edit tokens';
+  }
+
+  function openPushModal(applied, skipped) {
+    pendingPushApplied = applied || [];
+    const counts = { modified: 0, renamed: 0, deleted: 0 };
+    pendingPushApplied.forEach(d => { counts[d.reason] = (counts[d.reason] || 0) + 1; });
+    const summaryParts = [];
+    if (counts.modified) summaryParts.push(`<span class="modal-chip">~ ${counts.modified} modified</span>`);
+    if (counts.renamed) summaryParts.push(`<span class="modal-chip">↪ ${counts.renamed} renamed</span>`);
+    if (counts.deleted) summaryParts.push(`<span class="modal-chip">− ${counts.deleted} deleted</span>`);
+    $('push-summary').innerHTML = summaryParts.join('') || '<span class="modal-chip">No changes</span>';
+
+    const skippedEl = $('push-skipped');
+    if (skipped && skipped.length > 0) {
+      const lines = skipped.map(s => `<div><b>${s.path}</b> — ${s.reason}</div>`).join('');
+      skippedEl.innerHTML = `<div style="margin-bottom:4px;"><b>⚠ ${skipped.length} drift${skipped.length > 1 ? 's' : ''} skipped:</b></div>${lines}`;
+      skippedEl.style.display = 'block';
+    } else {
+      skippedEl.style.display = 'none';
+    }
+
+    $('push-message').value = generateDefaultPushMessage(pendingPushApplied);
+    $('push-description').value = '';
+    $('push-error').style.display = 'none';
+    $('push-confirm').disabled = pendingPushApplied.length === 0;
+    $('push-modal-form').style.display = 'block';
+    $('push-modal-success').style.display = 'none';
+    $('push-modal').classList.add('show');
+    setTimeout(() => $('push-message').focus(), 50);
+  }
+
+  function closePushModal() {
+    $('push-modal').classList.remove('show');
+    pendingPushTree = null;
+    pendingPushApplied = [];
+  }
+
+  function showPushSuccess(prUrl) {
+    $('push-modal-form').style.display = 'none';
+    $('push-modal-success').style.display = 'block';
+    const link = $('push-pr-link');
+    link.textContent = prUrl;
+    link.href = prUrl;
+    $('push-open-pr').onclick = () => window.open(prUrl, '_blank');
+  }
+
+  // UTF-8 safe base64 encode (atob/btoa are latin-1 only)
+  function utf8ToBase64(str) {
+    return btoa(unescape(encodeURIComponent(str)));
+  }
+
+  async function createPullRequest(cfg, tree, message, description) {
+    const baseUrl = `https://api.github.com/repos/${cfg.owner}/${cfg.repo}`;
+    const headers = {
+      'Authorization': `Bearer ${cfg.token}`,
+      'Accept': 'application/vnd.github+json',
+      'Content-Type': 'application/json'
+    };
+
+    // 1. Get base ref SHA
+    const refRes = await fetch(`${baseUrl}/git/ref/heads/${encodeURIComponent(cfg.branch)}`, { headers, cache: 'no-store' });
+    if (!refRes.ok) throw new Error(`get base ref: ${refRes.status} ${refRes.statusText}`);
+    const refData = await refRes.json();
+    const baseSha = refData.object.sha;
+
+    // 2. Get current file SHA. cache:'no-store' + cache-buster: the browser may
+    // have cached this URL with the `vnd.github.raw` Accept from the earlier
+    // fetchTokens() call, returning the file body instead of the metadata object.
+    const fileUrl = `${baseUrl}/contents/${cfg.filePath}?ref=${encodeURIComponent(cfg.branch)}&_=${Date.now()}`;
+    const fileRes = await fetch(fileUrl, { headers, cache: 'no-store' });
+    if (!fileRes.ok) throw new Error(`get file: ${fileRes.status} ${fileRes.statusText}`);
+    const fileData = await fileRes.json();
+    const fileSha = fileData && fileData.sha;
+    if (!fileSha) {
+      throw new Error(`get file: no sha in response (got keys: ${Object.keys(fileData || {}).join(', ') || 'none'})`);
+    }
+
+    // 3. Create new branch
+    const branchName = `figma-edit/${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 16)}`;
+    const createBranchRes = await fetch(`${baseUrl}/git/refs`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ ref: `refs/heads/${branchName}`, sha: baseSha })
+    });
+    if (!createBranchRes.ok) {
+      const txt = await createBranchRes.text();
+      throw new Error(`create branch: ${createBranchRes.status} ${txt}`);
+    }
+
+    // 4. Commit file
+    const newContent = JSON.stringify(tree, null, 2) + '\n';
+    const putRes = await fetch(`${baseUrl}/contents/${cfg.filePath}`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({
+        message: message,
+        content: utf8ToBase64(newContent),
+        sha: fileSha,
+        branch: branchName
+      })
+    });
+    if (!putRes.ok) {
+      const txt = await putRes.text();
+      throw new Error(`commit: ${putRes.status} ${txt}`);
+    }
+
+    // 5. Create PR
+    const prRes = await fetch(`${baseUrl}/pulls`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        title: message,
+        body: description || 'Edited from the Figma plugin',
+        head: branchName,
+        base: cfg.branch
+      })
+    });
+    if (!prRes.ok) {
+      const txt = await prRes.text();
+      throw new Error(`create PR: ${prRes.status} ${txt}`);
+    }
+    const prData = await prRes.json();
+    return { url: prData.html_url, number: prData.number, branch: branchName };
+  }
+
+  $('btn-push').onclick = () => {
+    if (!currentConfig.token || !currentConfig.owner || !currentConfig.repo || !currentConfig.filePath) {
+      toast('Configure GitHub connection first', true);
+      return;
+    }
+    if (localDrifts.length === 0) {
+      toast('Nothing to push', true);
+      return;
+    }
+    $('status').textContent = ' · Building payload…';
+    parent.postMessage({ pluginMessage: { type: 'build-push-payload' } }, '*');
+  };
+
+  $('push-cancel').onclick = closePushModal;
+  $('push-success-close').onclick = closePushModal;
+
+  $('push-confirm').onclick = async () => {
+    const message = $('push-message').value.trim();
+    if (!message) { $('push-error').textContent = 'Message is required'; $('push-error').style.display = 'block'; return; }
+    if (!pendingPushTree) { $('push-error').textContent = 'No payload ready'; $('push-error').style.display = 'block'; return; }
+    const description = $('push-description').value.trim();
+
+    $('push-error').style.display = 'none';
+    $('push-confirm').disabled = true;
+    $('push-cancel').disabled = true;
+    $('push-confirm').textContent = 'Creating PR…';
+    try {
+      const result = await createPullRequest(currentConfig, pendingPushTree, message, description);
+      parent.postMessage({ pluginMessage: { type: 'push-done', url: result.url, tree: pendingPushTree } }, '*');
+      showPushSuccess(result.url);
+      $('status').textContent = '';
+    } catch (err) {
+      $('push-error').textContent = err.message || String(err);
+      $('push-error').style.display = 'block';
+      $('push-confirm').disabled = false;
+      $('push-cancel').disabled = false;
+      $('push-confirm').textContent = 'Create PR';
+      $('status').textContent = '';
+    }
+  };
 
   $('btn-save').onclick = () => {
     currentConfig = {
@@ -947,8 +1329,8 @@
     });
 
     renderFilteredList();
-    $('btn-apply').disabled = currentDiffs.length === 0;
     $('btn-apply').textContent = currentDiffs.length > 0 ? `Apply ${currentDiffs.length}` : 'Apply';
+    refreshActionButtons();
     $('status').textContent = '';
   }
 
@@ -1149,7 +1531,8 @@
 
   function toggleBanner(show) {
     const el = $('update-banner');
-    if (show) el.classList.add('show');
+    // Never surface the "new version available" banner while a local drift is unresolved.
+    if (show && localDrifts.length === 0) el.classList.add('show');
     else el.classList.remove('show');
   }
 
@@ -1311,6 +1694,14 @@
         if (hasErrors) console.error('Revert errors:', msg.errors);
       }
       parent.postMessage({ pluginMessage: { type: 'check-local-desync' } }, '*');
+    } else if (msg.type === 'push-payload-ready') {
+      $('status').textContent = '';
+      if (msg.error) {
+        toast(msg.error, true);
+        return;
+      }
+      pendingPushTree = msg.tree;
+      openPushModal(msg.applied || [], msg.skipped || []);
     } else if (msg.type === 'error') {
       toast(msg.message, true);
       $('status').textContent = '';

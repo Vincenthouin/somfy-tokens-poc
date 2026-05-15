@@ -388,6 +388,11 @@ async function checkLocalDesync(): Promise<DriftItem[]> {
     await figma.clientStorage.getAsync(SNAPSHOT_KEY);
   if (!snapshot || Object.keys(snapshot).length === 0) return [];
 
+  // If a push is pending merge, the snapshot is ahead of the remote JSON.
+  // Disable the JSON fallback in that case — otherwise reverting a value to the
+  // pre-push state in Figma would silently match the (still old) JSON and hide a drift.
+  const pushPending = !!(await figma.clientStorage.getAsync("pushPending"));
+
   const collections = await figma.variables.getLocalVariableCollectionsAsync();
   const collection = collections.find(c => c.name === "Somfy Tokens");
 
@@ -449,7 +454,9 @@ async function checkLocalDesync(): Promise<DriftItem[]> {
 
       // Fallback: if the snapshot is stale, check whether Figma matches the current JSON.
       // Use the JSON's mode definition (not the snapshot's) so that newly-emptied modes don't drift.
-      if (valueDiffers) {
+      // Skipped when a push is pending: the snapshot is ahead of the JSON and the fallback
+      // would mask legitimate drifts created by reverting Figma to the pre-push state.
+      if (valueDiffers && !pushPending) {
         const cached = cachedByPath.get(path);
         if (cached) {
           const remoteSnap = buildRemoteSnapshot(cached);
@@ -457,6 +464,13 @@ async function checkLocalDesync(): Promise<DriftItem[]> {
           if (localSnapVsCached === remoteSnap) valueDiffers = false;
         }
       }
+
+      // For the display arrow, show the CURRENT JSON value as the target — that's
+      // what the user expects to align against on GitHub. Fall back to the snapshot
+      // value when no JSON has been fetched yet, or when a push is pending
+      // (in that case the snapshot is the desired state, ahead of the JSON).
+      const cachedForDisplay = cachedByPath.get(path);
+      const displayExpected = (cachedForDisplay && !pushPending) ? cachedForDisplay.value : entry.value;
 
       if (isRenamed) {
         drifts.push({
@@ -466,7 +480,7 @@ async function checkLocalDesync(): Promise<DriftItem[]> {
           figmaName: currentDotPath ? tokenPathToFigmaName(currentDotPath) : null,
           expectedName: expectedFigmaName,
           figmaValue: normalizeOldValue(local, entry.type, lightId, darkId),
-          expectedValue: entry.value
+          expectedValue: displayExpected
         });
       } else if (valueDiffers) {
         drifts.push({
@@ -474,7 +488,7 @@ async function checkLocalDesync(): Promise<DriftItem[]> {
           type: entry.type,
           reason: "modified",
           figmaValue: normalizeOldValue(local, entry.type, lightId, darkId),
-          expectedValue: entry.value
+          expectedValue: displayExpected
         });
       }
     } else if (entry.type === "typography" || entry.type === "shadow") {
@@ -634,6 +648,210 @@ function styleNameFromPath(path: string): string {
     .map(p => p.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" "))
     .map(p => p.charAt(0).toUpperCase() + p.slice(1))
     .join(" / ");
+}
+
+// ---------- Push to GitHub: build modified JSON from drifts ----------
+
+// Reverse map fontStyle name -> fontWeight number (case-insensitive lookup).
+const STYLE_TO_WEIGHT: { [key: string]: number } = (() => {
+  const m: { [key: string]: number } = {};
+  for (const w in WEIGHT_TO_STYLE) m[WEIGHT_TO_STYLE[Number(w)].toLowerCase()] = Number(w);
+  return m;
+})();
+
+// Reverse of tokenPathToFigmaName for Variables (slash -> dot).
+// "_base" is collapsed to "base" by tokenPathToFigmaName; if the original path
+// had "_base" at the same index, restore it.
+function figmaVarNameToJsonPath(figmaName: string, expectedPath?: string): string {
+  const segs = figmaName.split("/");
+  const expectedSegs = expectedPath ? expectedPath.split(".") : [];
+  return segs
+    .map((seg, i) => (seg === "base" && expectedSegs[i] === "_base" ? "_base" : seg))
+    .join(".");
+}
+
+function cloneTree(tree: any): any {
+  return JSON.parse(JSON.stringify(tree));
+}
+
+function getNodeByPath(tree: any, path: string): any {
+  const segs = path.split(".");
+  let node = tree;
+  for (const s of segs) {
+    if (!node || typeof node !== "object" || !(s in node)) return null;
+    node = node[s];
+  }
+  return node;
+}
+
+function setNodeByPath(tree: any, path: string, value: any): void {
+  const segs = path.split(".");
+  let node = tree;
+  for (let i = 0; i < segs.length - 1; i++) {
+    const s = segs[i];
+    if (!node[s] || typeof node[s] !== "object") node[s] = {};
+    node = node[s];
+  }
+  node[segs[segs.length - 1]] = value;
+}
+
+// Removes the node at path, then prunes any parent groups left with only $-fields or nothing.
+function deleteNodeByPath(tree: any, path: string): void {
+  const segs = path.split(".");
+  const parents: any[] = [];
+  let node = tree;
+  for (let i = 0; i < segs.length - 1; i++) {
+    const s = segs[i];
+    if (!node || typeof node !== "object" || !(s in node)) return;
+    parents.push(node);
+    node = node[s];
+  }
+  if (!node || typeof node !== "object") return;
+  delete node[segs[segs.length - 1]];
+
+  for (let i = parents.length - 1; i >= 0; i--) {
+    const parent = parents[i];
+    const childKey = segs[i];
+    const childNode = parent[childKey];
+    if (childNode && typeof childNode === "object") {
+      const keys = Object.keys(childNode).filter(k => !k.startsWith("$"));
+      if (keys.length === 0 && !("$value" in childNode)) delete parent[childKey];
+      else break;
+    }
+  }
+}
+
+function fontStyleToWeight(style: string): number | null {
+  const w = STYLE_TO_WEIGHT[String(style).toLowerCase()];
+  return typeof w === "number" ? w : null;
+}
+
+// color: figmaValue is either a hex string (single mode) or {light, dark}.
+// Preserve the original $value shape (alias keys, modes) and only override values.
+function buildModifiedValueForColor(originalValue: any, figmaValue: any): any {
+  if (typeof figmaValue === "string") {
+    if (originalValue && typeof originalValue === "object" && "light" in originalValue) {
+      return Object.assign({}, originalValue, { light: figmaValue });
+    }
+    return figmaValue;
+  }
+  if (figmaValue && typeof figmaValue === "object") {
+    if (originalValue && typeof originalValue === "object") {
+      return Object.assign({}, originalValue, figmaValue);
+    }
+    return Object.assign({}, figmaValue);
+  }
+  return figmaValue;
+}
+
+// typography: keep aliased fields untouched; only override the props that
+// differ between Figma readback and the resolved expected props.
+function buildModifiedValueForTypography(originalValue: any, figmaValue: any, expectedValue: any): any {
+  const out: any = Object.assign({}, originalValue && typeof originalValue === "object" ? originalValue : {});
+  if (!expectedValue) return out;
+
+  if (figmaValue.fontFamily !== expectedValue.fontFamily) {
+    out.fontFamily = figmaValue.fontFamily;
+  }
+  if (figmaValue.fontStyle !== expectedValue.fontStyle) {
+    const w = fontStyleToWeight(figmaValue.fontStyle);
+    if (w !== null) out.fontWeight = w;
+  }
+  if (figmaValue.fontSize !== expectedValue.fontSize) {
+    out.fontSize = `${figmaValue.fontSize}px`;
+  }
+  if (figmaValue.lineHeight !== expectedValue.lineHeight) {
+    out.lineHeight = figmaValue.lineHeight;
+  }
+  return out;
+}
+
+function buildModifiedValueForShadow(originalValue: any, figmaValue: any, expectedValue: any): any {
+  const out: any = Object.assign({}, originalValue && typeof originalValue === "object" ? originalValue : {});
+  if (!expectedValue) return out;
+
+  const figmaColor = String(figmaValue.color).toUpperCase();
+  const expectedColor = String(expectedValue.color || (expectedValue.color && expectedValue.color.light) || "").toUpperCase();
+  if (figmaColor !== expectedColor) {
+    if (out.color && typeof out.color === "object" && ("light" in out.color || "dark" in out.color)) {
+      out.color = Object.assign({}, out.color, { light: figmaColor });
+    } else {
+      out.color = figmaColor;
+    }
+  }
+  if (figmaValue.opacity !== expectedValue.opacity) out.opacity = figmaValue.opacity;
+  if (figmaValue.offsetX !== expectedValue.offsetX) out.offsetX = `${figmaValue.offsetX}px`;
+  if (figmaValue.offsetY !== expectedValue.offsetY) out.offsetY = `${figmaValue.offsetY}px`;
+  if (figmaValue.blur !== expectedValue.blur) out.blur = `${figmaValue.blur}px`;
+  if (figmaValue.spread !== expectedValue.spread) out.spread = `${figmaValue.spread}px`;
+  return out;
+}
+
+function applyDriftToTree(tree: any, drift: DriftItem): { ok: boolean; reason?: string } {
+  const targetPath = drift.path;
+  const targetNode = getNodeByPath(tree, targetPath);
+
+  if (drift.reason === "deleted") {
+    deleteNodeByPath(tree, targetPath);
+    return { ok: true };
+  }
+
+  if (drift.reason === "renamed") {
+    if (!SUPPORTED_VAR_TYPES.has(drift.type)) {
+      return { ok: false, reason: "rename of composite style (typography/shadow) not supported yet" };
+    }
+    if (!drift.figmaName) return { ok: false, reason: "missing figmaName" };
+    const newPath = figmaVarNameToJsonPath(drift.figmaName, targetPath);
+    if (newPath === targetPath) return { ok: true };
+    if (!targetNode) return { ok: false, reason: `original path not found: ${targetPath}` };
+
+    const modifiedNode = Object.assign({}, targetNode);
+    if (drift.figmaValue !== undefined) {
+      if (drift.type === "color") {
+        modifiedNode.$value = buildModifiedValueForColor(targetNode.$value, drift.figmaValue);
+      } else if (drift.type === "dimension" || drift.type === "number" || drift.type === "fontWeight" || drift.type === "fontFamily") {
+        modifiedNode.$value = drift.figmaValue;
+      }
+    }
+    deleteNodeByPath(tree, targetPath);
+    setNodeByPath(tree, newPath, modifiedNode);
+    return { ok: true };
+  }
+
+  // modified
+  if (!targetNode) return { ok: false, reason: `path not found: ${targetPath}` };
+
+  if (drift.type === "color") {
+    targetNode.$value = buildModifiedValueForColor(targetNode.$value, drift.figmaValue);
+  } else if (drift.type === "dimension" || drift.type === "number" || drift.type === "fontWeight" || drift.type === "fontFamily") {
+    targetNode.$value = drift.figmaValue;
+  } else if (drift.type === "typography") {
+    targetNode.$value = buildModifiedValueForTypography(targetNode.$value, drift.figmaValue, drift.expectedValue);
+  } else if (drift.type === "shadow") {
+    targetNode.$value = buildModifiedValueForShadow(targetNode.$value, drift.figmaValue, drift.expectedValue);
+  } else {
+    return { ok: false, reason: `unsupported type: ${drift.type}` };
+  }
+  return { ok: true };
+}
+
+interface PushPayload {
+  tree: any;
+  applied: DriftItem[];
+  skipped: { path: string; type: string; reason: string }[];
+}
+
+function buildPushPayload(drifts: DriftItem[]): PushPayload {
+  if (!cachedTokenTree) throw new Error("No JSON cached. Click 'Check' to fetch from GitHub first.");
+  const tree = cloneTree(cachedTokenTree);
+  const applied: DriftItem[] = [];
+  const skipped: { path: string; type: string; reason: string }[] = [];
+  for (const drift of drifts) {
+    const result = applyDriftToTree(tree, drift);
+    if (result.ok) applied.push(drift);
+    else skipped.push({ path: drift.path, type: drift.type, reason: result.reason || "unknown" });
+  }
+  return { tree, applied, skipped };
 }
 
 // ---------- Read existing Figma state ----------
@@ -1276,6 +1494,9 @@ figma.ui.onmessage = async (msg) => {
       allErrors.push(...cleanup.errors);
 
       await saveAppliedSnapshot(cachedTokens, cachedTokenTree);
+      // Apply syncs Figma to the JSON: snapshot and JSON are aligned again, so a previous
+      // post-push state (if any) is no longer relevant.
+      await figma.clientStorage.setAsync("pushPending", false);
 
       figma.ui.postMessage({
         type: "apply-done",
@@ -1358,6 +1579,47 @@ figma.ui.onmessage = async (msg) => {
 
       figma.ui.postMessage({ type: "revert-done", count, errors: errors.slice(0, 5) });
       figma.notify(`↩ Reverted ${count} item${count !== 1 ? "s" : ""} to last sync`);
+    }
+
+    else if (msg.type === "build-push-payload") {
+      if (!cachedTokenTree) {
+        figma.ui.postMessage({ type: "push-payload-ready", error: "No JSON cached. Click 'Check' to fetch from GitHub first." });
+        return;
+      }
+      const drifts = await checkLocalDesync();
+      if (drifts.length === 0) {
+        figma.ui.postMessage({ type: "push-payload-ready", error: "No local modifications to push." });
+        return;
+      }
+      try {
+        const { tree, applied, skipped } = buildPushPayload(drifts);
+        figma.ui.postMessage({
+          type: "push-payload-ready",
+          tree,
+          applied,
+          skipped
+        });
+      } catch (e: any) {
+        figma.ui.postMessage({ type: "push-payload-ready", error: e && e.message ? e.message : String(e) });
+      }
+    }
+
+    else if (msg.type === "push-done") {
+      // PR créée: on adopte le tree modifié comme nouvelle source of truth locale
+      // (sinon le snapshot resterait sur l'ancienne valeur et un revert à la main
+      // dans Figma ne lèverait pas de drift). Le user fera Check après le merge
+      // réel pour re-synchroniser avec GitHub.
+      if (msg.tree) {
+        cachedTokenTree = msg.tree;
+        cachedTokens = flattenTokens(msg.tree);
+        await saveAppliedSnapshot(cachedTokens, cachedTokenTree);
+        // Snapshot is now ahead of remote JSON until the PR is merged + re-applied.
+        // The drift JSON fallback must be disabled while this flag is set.
+        await figma.clientStorage.setAsync("pushPending", true);
+        const drifts = await checkLocalDesync();
+        figma.ui.postMessage({ type: "local-desync-computed", drifts });
+      }
+      figma.notify(`✓ PR created`);
     }
 
     else if (msg.type === "close") {
