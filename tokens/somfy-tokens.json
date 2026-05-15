@@ -52,7 +52,7 @@
           "secondary": {
             "$type": "color",
             "$value": {
-              "light": "#1770de",
+              "light": "#1770DF",
               "dark": "#95FF01"
             }
           },
