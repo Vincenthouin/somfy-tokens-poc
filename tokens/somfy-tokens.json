@@ -249,13 +249,6 @@
                 "somfy.darkPlaceholder": true
               }
             }
-          },
-          "Test": {
-            "$type": "color",
-            "$value": {
-              "light": "#FFFFFF",
-              "dark": "#FFFFFF"
-            }
           }
         },
         "content": {
@@ -667,17 +660,6 @@
           "$extensions": {
             "somfy.darkPlaceholder": true
           }
-        },
-        "test": {
-          "$type": "shadow",
-          "$value": {
-            "color": "#000000",
-            "offsetX": "0px",
-            "offsetY": "4px",
-            "blur": "4px",
-            "spread": "0px",
-            "opacity": 0.25
-          }
         }
       },
       "font": {
@@ -824,15 +806,6 @@
             "fontWeight": "{primitives.loop.font.weight.regular}",
             "fontSize": "{primitives.loop.font.size.12}",
             "lineHeight": "{primitives.loop.font.lineHeight.120}"
-          }
-        },
-        "test": {
-          "$type": "typography",
-          "$value": {
-            "fontFamily": "Inter",
-            "fontWeight": 400,
-            "fontSize": "12px",
-            "lineHeight": 0
           }
         }
       }
