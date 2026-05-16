@@ -24,11 +24,12 @@ interface Diff {
 interface DriftItem {
   path: string;
   type: string;
-  reason?: "modified" | "renamed" | "deleted";
+  reason?: "modified" | "renamed" | "deleted" | "added";
   figmaValue?: any;
   expectedValue?: any;
   figmaName?: string | null;
   expectedName?: string;
+  figmaId?: string; // used by ADDED to delete the Figma item on revert
 }
 
 let cachedTokens: FlatToken[] = [];
@@ -564,6 +565,14 @@ async function checkLocalDesync(): Promise<DriftItem[]> {
     }
   }
 
+  // ADDED: Figma items with no corresponding JSON token. detectAddedItems()
+  // reads cachedTokens directly, so it must run after cachedTokens has been
+  // populated (i.e. after at least one "Check" / tokens-fetched).
+  if (cachedTokens.length > 0) {
+    const addedItems = await detectAddedItems();
+    drifts.push(...addedItems);
+  }
+
   return drifts;
 }
 
@@ -791,6 +800,18 @@ function applyDriftToTree(tree: any, drift: DriftItem): { ok: boolean; reason?: 
   const targetPath = drift.path;
   const targetNode = getNodeByPath(tree, targetPath);
 
+  if (drift.reason === "added") {
+    if (drift.figmaValue === undefined || drift.figmaValue === null) {
+      return { ok: false, reason: "missing figmaValue" };
+    }
+    if (getNodeByPath(tree, targetPath) && getNodeByPath(tree, targetPath).$value !== undefined) {
+      return { ok: false, reason: `path already exists in JSON: ${targetPath}` };
+    }
+    const newNode: any = { $type: drift.type, $value: buildAddedJsonValue(drift) };
+    setNodeByPath(tree, targetPath, newNode);
+    return { ok: true };
+  }
+
   if (drift.reason === "deleted") {
     deleteNodeByPath(tree, targetPath);
     return { ok: true };
@@ -839,6 +860,180 @@ interface PushPayload {
   tree: any;
   applied: DriftItem[];
   skipped: { path: string; type: string; reason: string }[];
+}
+
+// ---------- ADDED detection (Figma items with no corresponding JSON token) ----------
+
+// Heuristic: figure out a W3C $type from a Figma Variable. Path hints disambiguate
+// FLOAT (dimension vs number vs fontWeight). Returns null for unsupported types
+// (e.g. BOOLEAN, or STRING with no obvious meaning).
+function inferTokenTypeFromVariable(variable: Variable, dotPath: string): string | null {
+  const resolved = String(variable.resolvedType || "").toLowerCase();
+  if (resolved === "color") return "color";
+  if (resolved === "boolean") return null;
+  if (resolved === "string") return "fontFamily";
+  if (resolved === "float") {
+    const p = dotPath.toLowerCase();
+    if (/(^|\.)weight($|\.)|fontweight/.test(p)) return "fontWeight";
+    if (/(^|\.)number($|\.)|opacity|duration|ratio|count/.test(p)) return "number";
+    return "dimension";
+  }
+  return null;
+}
+
+// Reads the variable's value at the light/dark modes, normalizing to JSON shape
+// (hex / { light, dark } for color; number for dimension/number/fontWeight; string for family).
+function readVariableValueForJson(variable: Variable, type: string, lightId: string, darkId: string): any {
+  const lightVal = variable.valuesByMode[lightId];
+  const darkVal = darkId ? variable.valuesByMode[darkId] : undefined;
+
+  if (type === "color") {
+    const lightHex = normalizeColor(lightVal);
+    if (darkVal !== undefined && darkVal !== null) {
+      return { light: lightHex, dark: normalizeColor(darkVal) };
+    }
+    return lightHex;
+  }
+  if (type === "dimension" || type === "number" || type === "fontWeight") {
+    return typeof lightVal === "number" ? Math.round(lightVal * 10000) / 10000 : lightVal;
+  }
+  if (type === "fontFamily") {
+    return String(lightVal || "");
+  }
+  return lightVal;
+}
+
+// Reverse of styleNameFromPath, for a style name like "Loop / Typography / Title Soft".
+// Returns the dot-suffix WITHOUT the top-level "composite." / "primitives." prefix.
+function styleNameToPathSuffix(figmaName: string): string {
+  const norm = normalizeStyleName(figmaName); // "Loop/Typography/Title Soft"
+  return norm
+    .split("/")
+    .map(s => s.trim().toLowerCase().replace(/\s+/g, "-"))
+    .join(".");
+}
+
+// Pick the top-level prefix ("composite" or "primitives") for an ADDED style by
+// sampling existing tokens of the same type. Falls back to W3C-typical defaults.
+function inferStylePrefix(type: "typography" | "shadow"): string {
+  for (const t of cachedTokens) {
+    if (t.type !== type) continue;
+    const first = t.path.split(".")[0];
+    if (first) return first + ".";
+  }
+  return type === "typography" ? "composite." : "primitives.";
+}
+
+// Builds the full W3C $value object for an ADDED drift from its raw Figma readback.
+function buildAddedJsonValue(drift: DriftItem): any {
+  const v = drift.figmaValue;
+  if (drift.type === "color") return v;
+  if (drift.type === "dimension") return typeof v === "number" ? `${v}px` : v;
+  if (drift.type === "number" || drift.type === "fontWeight") return v;
+  if (drift.type === "fontFamily") return [String(v)];
+  if (drift.type === "typography") {
+    const weight = fontStyleToWeight(v.fontStyle) || 400;
+    return {
+      fontFamily: v.fontFamily,
+      fontWeight: weight,
+      fontSize: `${v.fontSize}px`,
+      lineHeight: v.lineHeight
+    };
+  }
+  if (drift.type === "shadow") {
+    return {
+      color: v.color,
+      offsetX: `${v.offsetX}px`,
+      offsetY: `${v.offsetY}px`,
+      blur: `${v.blur}px`,
+      spread: `${v.spread}px`,
+      opacity: v.opacity
+    };
+  }
+  return v;
+}
+
+// Scans Figma for variables/styles that have no corresponding token in cachedTokens.
+async function detectAddedItems(): Promise<DriftItem[]> {
+  await pagesReady;
+  const added: DriftItem[] = [];
+
+  const existingPaths = new Set<string>();
+  const existingTypographyNames = new Set<string>();
+  const existingShadowNames = new Set<string>();
+  for (const t of cachedTokens) {
+    existingPaths.add(t.path);
+    if (t.type === "typography") existingTypographyNames.add(normalizeStyleName(styleNameFromPath(t.path)));
+    if (t.type === "shadow") existingShadowNames.add(normalizeStyleName(styleNameFromPath(t.path)));
+  }
+
+  // 1. Variables
+  const collections = await figma.variables.getLocalVariableCollectionsAsync();
+  const collection = collections.find(c => c.name === "Somfy Tokens");
+  if (collection) {
+    const lightMode = collection.modes.find(m => m.name === "Light") || collection.modes[0];
+    const darkMode = collection.modes.find(m => m.name === "Dark");
+    const lightId = lightMode?.modeId || "";
+    const darkId = darkMode?.modeId || "";
+
+    for (const varId of collection.variableIds) {
+      const variable = await figma.variables.getVariableByIdAsync(varId);
+      if (!variable) continue;
+      const dotPath = variable.name.replace(/\//g, ".").replace(/\bbase\b/g, "_base");
+      if (existingPaths.has(dotPath)) continue;
+
+      const tokenType = inferTokenTypeFromVariable(variable, dotPath);
+      if (!tokenType) continue;
+      const figmaValue = readVariableValueForJson(variable, tokenType, lightId, darkId);
+      added.push({
+        path: dotPath,
+        type: tokenType,
+        reason: "added",
+        figmaValue,
+        figmaName: variable.name,
+        figmaId: variable.id
+      });
+    }
+  }
+
+  // 2. Text styles -> typography
+  const textStyles = await figma.getLocalTextStylesAsync();
+  for (const style of textStyles) {
+    const norm = normalizeStyleName(style.name);
+    if (existingTypographyNames.has(norm)) continue;
+    const props = readTextStyleProps(style);
+    const pathSuffix = styleNameToPathSuffix(style.name);
+    const prefix = inferStylePrefix("typography");
+    added.push({
+      path: `${prefix}${pathSuffix}`,
+      type: "typography",
+      reason: "added",
+      figmaValue: props,
+      figmaName: style.name,
+      figmaId: style.id
+    });
+  }
+
+  // 3. Effect styles -> shadow (only DROP_SHADOW)
+  const effectStyles = await figma.getLocalEffectStylesAsync();
+  for (const style of effectStyles) {
+    const norm = normalizeStyleName(style.name);
+    if (existingShadowNames.has(norm)) continue;
+    const props = readEffectStyleProps(style);
+    if (!props) continue;
+    const pathSuffix = styleNameToPathSuffix(style.name);
+    const prefix = inferStylePrefix("shadow");
+    added.push({
+      path: `${prefix}${pathSuffix}`,
+      type: "shadow",
+      reason: "added",
+      figmaValue: props,
+      figmaName: style.name,
+      figmaId: style.id
+    });
+  }
+
+  return added;
 }
 
 function buildPushPayload(drifts: DriftItem[]): PushPayload {
@@ -1515,9 +1710,11 @@ figma.ui.onmessage = async (msg) => {
     }
 
     else if (msg.type === "revert-local-changes") {
-      const snapshot: { [path: string]: { type: string; value: any } } | null =
-        await figma.clientStorage.getAsync(SNAPSHOT_KEY);
-      if (!snapshot || Object.keys(snapshot).length === 0) {
+      const snapshot: { [path: string]: { type: string; value: any } } =
+        (await figma.clientStorage.getAsync(SNAPSHOT_KEY)) || {};
+      const addedItems: { figmaId: string; type: string; path: string }[] = msg.addedItems || [];
+
+      if (Object.keys(snapshot).length === 0 && addedItems.length === 0) {
         figma.ui.postMessage({ type: "error", message: "No sync snapshot found. Apply tokens from GitHub first." });
         return;
       }
@@ -1573,6 +1770,34 @@ figma.ui.onmessage = async (msg) => {
           } catch (e: any) {
             const msg = e && e.message ? e.message : String(e);
             if (errors.length < 5) errors.push(`${path}: ${msg}`);
+          }
+        }
+      }
+
+      // Revert ADDED: delete the Figma item by id. The bulk confirmation in the UI
+      // warns the user before we get here.
+      if (addedItems.length > 0) {
+        figma.ui.postMessage({ type: "progress", message: "Removing added items…" });
+        for (const item of addedItems) {
+          try {
+            if (SUPPORTED_VAR_TYPES.has(item.type)) {
+              const variable = await figma.variables.getVariableByIdAsync(item.figmaId);
+              if (variable) {
+                variable.remove();
+                count++;
+              }
+            } else if (item.type === "typography") {
+              const styles = await figma.getLocalTextStylesAsync();
+              const style = styles.find(s => s.id === item.figmaId);
+              if (style) { style.remove(); count++; }
+            } else if (item.type === "shadow") {
+              const styles = await figma.getLocalEffectStylesAsync();
+              const style = styles.find(s => s.id === item.figmaId);
+              if (style) { style.remove(); count++; }
+            }
+          } catch (e: any) {
+            const m = e && e.message ? e.message : String(e);
+            if (errors.length < 5) errors.push(`${item.path}: ${m}`);
           }
         }
       }

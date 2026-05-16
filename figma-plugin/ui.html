@@ -497,8 +497,6 @@
   .drift-section {
     display: none;
     margin-bottom: 16px;
-    padding-bottom: 16px;
-    border-bottom: 1px solid var(--warning-border);
   }
   .drift-section-label {
     font-size: 10px;
@@ -513,6 +511,8 @@
   }
   .diff-row.drift .accent { background: var(--warning); }
   .diff-row.drift .diff-badge { color: var(--warning); background: var(--warning-bg); }
+  .diff-row.drift.added-row .accent { background: var(--success, #10b981); }
+  .diff-row.drift.added-row .diff-badge { color: var(--success, #10b981); background: var(--success-bg, rgba(16,185,129,0.15)); }
 
   .drift-actions { display: flex; gap: 6px; }
   .btn-push {
@@ -858,6 +858,8 @@
         pollOnce();
         parent.postMessage({ pluginMessage: { type: 'check-local-desync' } }, '*');
       }
+      // Re-eval drift/banner display for the newly active tab.
+      updateDesyncBanner(localDrifts);
     };
   });
 
@@ -908,19 +910,42 @@
   }
 
   // ---------- Desync (drift Figma local) ----------
+  // On Sync tab: drift list is shown directly (no "Review" gate), and the stats
+  // dashboard / category filters / "up to date" message are hidden until drifts
+  // are resolved. On Config tab: a banner surfaces the drift and "Review" jumps
+  // back to the Sync tab.
   function updateDesyncBanner(drifts) {
     localDrifts = drifts || [];
+    const hasDrift = localDrifts.length > 0;
+    const onConfig = document.querySelector('.tab[data-tab="config"]').classList.contains('active');
     const banner = $('desync-banner');
-    if (localDrifts.length === 0) {
-      banner.classList.remove('show');
-      $('drift-section').style.display = 'none';
-      refreshActionButtons();
-      return;
+
+    if (hasDrift) {
+      const n = localDrifts.length;
+      $('desync-title').textContent = `Out of sync — ${n} token${n > 1 ? 's' : ''} drifted`;
+      $('desync-sub').textContent = `Push or revert the local modifications before checking for updates.`;
     }
-    const n = localDrifts.length;
-    $('desync-title').textContent = `Out of sync — ${n} token${n > 1 ? 's' : ''} drifted`;
-    $('desync-sub').textContent = `Push or revert the local modifications before checking for updates.`;
-    banner.classList.add('show');
+    // Banner only surfaces on the Config tab — on Sync we render the drift list inline.
+    if (hasDrift && onConfig) banner.classList.add('show');
+    else banner.classList.remove('show');
+
+    if (!onConfig) {
+      if (hasDrift) {
+        renderDriftList();
+        $('sync-empty').style.display = 'none';
+        $('sync-results').style.display = 'none';
+      } else {
+        $('drift-section').style.display = 'none';
+        // Restore default Sync content based on whether we have JSON diffs cached.
+        if (currentDiffs.length > 0) {
+          $('sync-empty').style.display = 'none';
+          $('sync-results').style.display = 'block';
+        } else {
+          $('sync-empty').style.display = 'block';
+          $('sync-results').style.display = 'none';
+        }
+      }
+    }
     refreshActionButtons();
   }
 
@@ -950,7 +975,7 @@
     localDrifts.forEach(d => {
       const cat = categorizeDiff(d.path);
       const el = document.createElement('div');
-      el.className = 'diff-row drift';
+      el.className = 'diff-row drift' + (d.reason === 'added' ? ' added-row' : '');
 
       // Swatch : on affiche la valeur actuelle de Figma (la "mauvaise")
       const swatchFake = { path: d.path, kind: 'modified', oldValue: d.figmaValue, newValue: d.figmaValue };
@@ -959,7 +984,11 @@
       // Meta : Figma X → Attendu Y
       let metaHtml = '';
       let badge = 'DRIFT';
-      if (d.reason === 'deleted') {
+      if (d.reason === 'added') {
+        const figmaN = d.figmaName || d.path;
+        metaHtml = `New in Figma · will be added at <span class="mono">${d.path}</span>`;
+        badge = 'ADDED';
+      } else if (d.reason === 'deleted') {
         metaHtml = `Deleted from Figma · expected <span class="mono">${d.expectedName || d.path}</span>`;
         badge = 'DEL';
       } else if (d.reason === 'renamed') {
@@ -1010,16 +1039,28 @@
   function doRevert() {
     if (localDrifts.length === 0) return;
     const n = localDrifts.length;
-    if (!confirm(`Rétablir ${n} token${n > 1 ? 's' : ''} à la valeur du dernier sync ?`)) return;
+    const addedDrifts = localDrifts.filter(d => d.reason === 'added' && d.figmaId);
+    const nAdded = addedDrifts.length;
+
+    let msg = `Rétablir ${n} token${n > 1 ? 's' : ''} à la valeur du dernier sync ?`;
+    if (nAdded > 0) {
+      msg += `\n\n⚠ Attention : ${nAdded} variable(s)/style(s) ajouté(s) dans Figma seront SUPPRIMÉS définitivement.`;
+    }
+    if (!confirm(msg)) return;
+
     $('status').textContent = ' · Rétablissement…';
     parent.postMessage({ pluginMessage: {
       type: 'revert-local-changes',
-      paths: localDrifts.map(d => d.path)
+      paths: localDrifts.filter(d => d.reason !== 'added').map(d => d.path),
+      addedItems: addedDrifts.map(d => ({ figmaId: d.figmaId, type: d.type, path: d.path }))
     }}, '*');
   }
 
+  // "Review" on the Config-tab banner: jump to the Sync tab where the drift
+  // list is already rendered inline by updateDesyncBanner().
   $('btn-desync-review').onclick = () => {
-    renderDriftList();
+    const syncTab = document.querySelector('.tab[data-tab="sync"]');
+    if (syncTab) syncTab.click();
     $('tab-sync').scrollTop = 0;
   };
 
@@ -1030,9 +1071,10 @@
   let pendingPushApplied = [];
 
   function generateDefaultPushMessage(applied) {
-    const counts = { modified: 0, renamed: 0, deleted: 0 };
+    const counts = { added: 0, modified: 0, renamed: 0, deleted: 0 };
     applied.forEach(d => { counts[d.reason] = (counts[d.reason] || 0) + 1; });
     const parts = [];
+    if (counts.added) parts.push(`add ${counts.added}`);
     if (counts.modified) parts.push(`update ${counts.modified} token${counts.modified > 1 ? 's' : ''}`);
     if (counts.renamed) parts.push(`rename ${counts.renamed}`);
     if (counts.deleted) parts.push(`remove ${counts.deleted}`);
@@ -1041,9 +1083,10 @@
 
   function openPushModal(applied, skipped) {
     pendingPushApplied = applied || [];
-    const counts = { modified: 0, renamed: 0, deleted: 0 };
+    const counts = { added: 0, modified: 0, renamed: 0, deleted: 0 };
     pendingPushApplied.forEach(d => { counts[d.reason] = (counts[d.reason] || 0) + 1; });
     const summaryParts = [];
+    if (counts.added) summaryParts.push(`<span class="modal-chip">+ ${counts.added} added</span>`);
     if (counts.modified) summaryParts.push(`<span class="modal-chip">~ ${counts.modified} modified</span>`);
     if (counts.renamed) summaryParts.push(`<span class="modal-chip">↪ ${counts.renamed} renamed</span>`);
     if (counts.deleted) summaryParts.push(`<span class="modal-chip">− ${counts.deleted} deleted</span>`);
@@ -1302,8 +1345,12 @@
 
   function renderDiffs(diffs, totalTokens, placeholders) {
     currentDiffs = diffs || [];
-    $('sync-empty').style.display = 'none';
-    $('sync-results').style.display = 'block';
+    // Don't surface stats/filters while a local drift is unresolved — the
+    // drift list owns the Sync tab in that case.
+    if (localDrifts.length === 0) {
+      $('sync-empty').style.display = 'none';
+      $('sync-results').style.display = 'block';
+    }
     $('stat-total').textContent = totalTokens;
     $('stat-added').textContent = currentDiffs.filter(d => d.kind === 'added').length;
     $('stat-modified').textContent = currentDiffs.filter(d => d.kind === 'modified').length;
