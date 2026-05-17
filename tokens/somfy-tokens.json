@@ -249,6 +249,13 @@
                 "somfy.darkPlaceholder": true
               }
             }
+          },
+          "Test 2": {
+            "$type": "color",
+            "$value": {
+              "light": "#FFFFFF",
+              "dark": "#FFFFFF"
+            }
           }
         },
         "content": {
