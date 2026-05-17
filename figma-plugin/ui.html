@@ -699,6 +699,18 @@
     <button id="banner-dismiss" class="dismiss">✕</button>
   </div>
 
+  <div id="pending-merge-banner" class="drift-banner">
+    <div class="banner-icon">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f5a623" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+    </div>
+    <div class="banner-msg">
+      <div class="banner-title">PR pending merge</div>
+      <div class="banner-sub">Your local state is ahead of GitHub. Merge the PR, then refresh.</div>
+    </div>
+    <button id="pending-merge-refresh" style="background:transparent;border:1px solid var(--warning-border);color:var(--warning);">Refresh</button>
+    <button id="pending-merge-open">Open PR</button>
+  </div>
+
   <div class="content" id="tab-sync">
     <div id="drift-section" class="drift-section">
       <div class="drift-section-label">
@@ -846,6 +858,14 @@
   let currentDiffs = [];
   let currentFilter = 'all';
   let localDrifts = [];
+  // True once tokens-fetched has returned at least one diffs payload.
+  // Distinguishes "before first fetch" (show sync-empty) from "fetched and aligned"
+  // (show sync-results with its own up-to-date message).
+  let hasFetchedOnce = false;
+  // URL of the most recent push when the PR hasn't been merged yet. Drives the
+  // "PR pending merge" banner and disables Check (which would reload the
+  // pre-merge JSON and undo the locally pushed state).
+  let pendingPushUrl = null;
 
   document.querySelectorAll('.tab').forEach(t => {
     t.onclick = () => {
@@ -929,15 +949,24 @@
     if (hasDrift && onConfig) banner.classList.add('show');
     else banner.classList.remove('show');
 
+    const pendingMerge = !!pendingPushUrl;
     if (!onConfig) {
       if (hasDrift) {
         renderDriftList();
         $('sync-empty').style.display = 'none';
         $('sync-results').style.display = 'none';
+      } else if (pendingMerge) {
+        // Pending merge owns the Sync tab — only the "PR pending merge" banner
+        // should be visible. Hide stats / filters / "up to date" message.
+        $('drift-section').style.display = 'none';
+        $('sync-empty').style.display = 'none';
+        $('sync-results').style.display = 'none';
       } else {
         $('drift-section').style.display = 'none';
-        // Restore default Sync content based on whether we have JSON diffs cached.
-        if (currentDiffs.length > 0) {
+        // Once we've fetched at least once, sync-results is the default (it
+        // renders its own "Everything is up to date" when currentDiffs is empty).
+        // sync-empty is only the pre-fetch "Click Check" state.
+        if (hasFetchedOnce) {
           $('sync-empty').style.display = 'none';
           $('sync-results').style.display = 'block';
         } else {
@@ -951,20 +980,42 @@
 
   // Check / Apply are disabled while a local drift is unresolved: applying would
   // silently overwrite the Figma modification, and checking would pull a JSON
-  // that desynchronizes the snapshot.
+  // that desynchronizes the snapshot. Check is ALSO disabled while a push is
+  // pending merge — re-fetching the pre-merge JSON would clobber the locally
+  // pushed state (the supposedly-deleted token would be re-added, etc.).
   function refreshActionButtons() {
     const hasDrift = localDrifts.length > 0;
+    const pendingMerge = !!pendingPushUrl;
     const fetchBtn = $('btn-fetch');
     const applyBtn = $('btn-apply');
-    fetchBtn.disabled = hasDrift;
-    applyBtn.disabled = hasDrift || currentDiffs.length === 0;
-    const blockMsg = 'Resolve local modifications first (push or revert)';
-    fetchBtn.title = hasDrift ? blockMsg : '';
-    applyBtn.title = hasDrift ? blockMsg : '';
-    if (hasDrift) {
+    fetchBtn.disabled = hasDrift || pendingMerge;
+    // Apply during pendingMerge would re-write the pre-merge JSON's state to
+    // Figma (e.g. re-creating a token the user just pushed a deletion for).
+    applyBtn.disabled = hasDrift || pendingMerge || currentDiffs.length === 0;
+    const driftMsg = 'Resolve local modifications first (push or revert)';
+    const pendingMsg = 'PR pending merge — use Refresh after merging';
+    fetchBtn.title = hasDrift ? driftMsg : (pendingMerge ? pendingMsg : '');
+    applyBtn.title = hasDrift ? driftMsg : (pendingMerge ? pendingMsg : '');
+    if (hasDrift || pendingMerge) {
       const el = $('update-banner');
       if (el) el.classList.remove('show');
     }
+  }
+
+  function showPendingMergeBanner(url) {
+    pendingPushUrl = url || pendingPushUrl;
+    $('pending-merge-banner').classList.add('show');
+    // Re-run layout: pending merge hides the stats / filters / up-to-date
+    // section the same way an active drift does.
+    updateDesyncBanner(localDrifts);
+  }
+
+  function hidePendingMergeBanner() {
+    pendingPushUrl = null;
+    $('pending-merge-banner').classList.remove('show');
+    // Re-run layout to restore the stats / filters / up-to-date section.
+    // updateDesyncBanner calls refreshActionButtons internally.
+    updateDesyncBanner(localDrifts);
   }
 
   function renderDriftList() {
@@ -1065,6 +1116,35 @@
   };
 
   $('btn-revert-all').onclick = doRevert;
+
+  // Pending-merge banner actions: "Open PR" opens GitHub in a new tab,
+  // "Refresh" checks if the SHA has advanced (= PR merged). Only when the SHA
+  // actually changes do we fetch tokens — fetching pre-merge would clobber
+  // the locally pushed state.
+  $('pending-merge-open').onclick = () => {
+    if (pendingPushUrl) window.open(pendingPushUrl, '_blank');
+  };
+
+  $('pending-merge-refresh').onclick = async () => {
+    if (!currentConfig.token || !currentConfig.owner || !currentConfig.repo) return;
+    $('status').textContent = ' · Checking PR status…';
+    try {
+      const sha = await fetchLatestSha(currentConfig);
+      if (!sha) { toast('Could not reach GitHub', true); return; }
+      if (sha === lastKnownRemoteSha) {
+        toast('PR not merged yet on GitHub', false);
+        return;
+      }
+      // SHA advanced — likely our merge. Fetch tokens; auto-clear pushPending
+      // will fire on the code.ts side if the new JSON aligns with our snapshot.
+      lastKnownRemoteSha = sha;
+      isBusy = true;
+      await fetchTokens(currentConfig);
+    } finally {
+      isBusy = false;
+      $('status').textContent = '';
+    }
+  };
 
   // ---------- Push to GitHub ----------
   let pendingPushTree = null;
@@ -1234,6 +1314,9 @@
     try {
       const result = await createPullRequest(currentConfig, pendingPushTree, message, description);
       parent.postMessage({ pluginMessage: { type: 'push-done', url: result.url, tree: pendingPushTree } }, '*');
+      // Surface the persistent "pending merge" banner immediately so it's
+      // visible the moment the user closes the success modal.
+      showPendingMergeBanner(result.url);
       showPushSuccess(result.url);
       $('status').textContent = '';
     } catch (err) {
@@ -1275,13 +1358,18 @@
       toast('Fill all config fields first', true);
       return false;
     }
-    const url = `https://api.github.com/repos/${cfg.owner}/${cfg.repo}/contents/${cfg.filePath}?ref=${cfg.branch}`;
+    // cache:'no-store' + cache-buster: GitHub responds with Cache-Control:
+    // must-revalidate but some clients still serve stale responses post-merge,
+    // which leaves cachedTokens pointing at the pre-merge JSON and produces
+    // ghost drifts. Force a fresh round-trip.
+    const url = `https://api.github.com/repos/${cfg.owner}/${cfg.repo}/contents/${cfg.filePath}?ref=${cfg.branch}&_=${Date.now()}`;
     try {
       const res = await fetch(url, {
         headers: {
           'Authorization': `Bearer ${cfg.token}`,
           'Accept': 'application/vnd.github.raw'
-        }
+        },
+        cache: 'no-store'
       });
       if (!res.ok) {
         toast(`GitHub error ${res.status}: ${res.statusText}`, true);
@@ -1345,6 +1433,7 @@
 
   function renderDiffs(diffs, totalTokens, placeholders) {
     currentDiffs = diffs || [];
+    hasFetchedOnce = true;
     // Don't surface stats/filters while a local drift is unresolved — the
     // drift list owns the Sync tab in that case.
     if (localDrifts.length === 0) {
@@ -1569,17 +1658,39 @@
     const sha = await fetchLatestSha(currentConfig);
     if (!sha) return;
 
+    const shaChanged = lastKnownRemoteSha !== null && sha !== lastKnownRemoteSha;
     lastKnownRemoteSha = sha;
-    if (lastSyncedSha === null) return;
 
+    // While a PR is pending merge, a SHA change is most likely OUR merge.
+    // Auto-fetch the JSON: the tokens-fetched handler will auto-clear pushPending
+    // (and the pending-merge banner) if the new JSON aligns with the snapshot.
+    // Skip the "update available" banner in this case — the pending-merge banner
+    // already owns that real estate, and flashing the update banner is confusing.
+    if (shaChanged && pendingPushUrl) {
+      isBusy = true;
+      $('status').textContent = ' · Refreshing after merge…';
+      try {
+        await fetchTokens(currentConfig);
+      } catch (e) {
+        console.error('[poll] auto-fetch after SHA change failed:', e);
+      } finally {
+        isBusy = false;
+        $('status').textContent = '';
+        parent.postMessage({ pluginMessage: { type: 'check-local-desync' } }, '*');
+      }
+      return;
+    }
+
+    if (lastSyncedSha === null) return;
     const hasUpdate = sha !== lastSyncedSha && sha !== bannerDismissedForSha;
     toggleBanner(hasUpdate);
   }
 
   function toggleBanner(show) {
     const el = $('update-banner');
-    // Never surface the "new version available" banner while a local drift is unresolved.
-    if (show && localDrifts.length === 0) el.classList.add('show');
+    // Suppress the "new version available" banner while a drift is unresolved
+    // or a push is pending merge (the dedicated banners already cover that).
+    if (show && localDrifts.length === 0 && !pendingPushUrl) el.classList.add('show');
     else el.classList.remove('show');
   }
 
@@ -1621,6 +1732,48 @@
       parent.postMessage({ pluginMessage: { type: 'save-synced-sha', sha } }, '*');
     }
     maybeStartPolling();
+  }
+
+  // Fetch the JSON at plugin boot to populate cachedTokens before any drift
+  // check runs. Silent skip when the config is incomplete (first launch).
+  // Errors surface via the existing toasts in fetchTokens (PAT expired, repo
+  // gone, etc.) — those are actually useful to see.
+  async function doAutoCheckOnBoot(hasAppliedSnapshot) {
+    const cfg = currentConfig;
+    const configReady = !!(cfg.token && cfg.owner && cfg.repo && cfg.filePath);
+    if (!configReady) {
+      console.log('[auto-check] config incomplete, skipping fetch');
+      if (hasAppliedSnapshot) {
+        parent.postMessage({ pluginMessage: { type: 'check-local-desync' } }, '*');
+      }
+      return;
+    }
+    $('status').textContent = ' · Loading tokens…';
+    isBusy = true;
+    try {
+      const ok = await fetchTokens(cfg);
+      if (ok) {
+        const sha = await fetchLatestSha(cfg);
+        if (sha) lastKnownRemoteSha = sha;
+      }
+    } catch (e) {
+      console.error('[auto-check] failed:', e);
+    } finally {
+      isBusy = false;
+      $('status').textContent = '';
+      // Drift detection must run after tokens-fetched has populated cachedTokens
+      // on the code.ts side. cachedTokens is assigned synchronously at the top
+      // of the tokens-fetched handler so it's safe to post this immediately
+      // — the message queue guarantees ordering.
+      if (hasAppliedSnapshot) {
+        parent.postMessage({ pluginMessage: { type: 'check-local-desync' } }, '*');
+      }
+      // Start the SHA poller now (deferred from config-loaded). At this point
+      // the auto-fetch has set lastKnownRemoteSha and the alignment check in
+      // local-desync-computed will have a chance to bump lastSyncedSha before
+      // the first pollOnce, so no spurious "New version available" appears.
+      maybeStartPolling();
+    }
   }
 
   // ---------- Drift polling (figma.on documentchange ne couvre pas les changements de variables) ----------
@@ -1695,18 +1848,30 @@
 
       if (lastSyncedSha === null && msg.hasExistingCollection) {
         autoInitSha();
-      } else {
-        maybeStartPolling();
       }
+      // Note: maybeStartPolling() is deferred until after doAutoCheckOnBoot
+      // completes — running pollOnce() before the auto-fetch can flash a
+      // "New version available" banner that the auto-fetch would otherwise
+      // dismiss (state was already aligned with the new SHA).
 
-      if (msg.hasAppliedSnapshot) {
-        parent.postMessage({ pluginMessage: { type: 'check-local-desync' } }, '*');
-      }
+      // Auto-fetch the JSON on boot so cachedTokens is populated before the
+      // first drift check. Without this, ADDED detection is skipped, the
+      // JSON-fallback in drift detection is inactive, and "Push to GitHub"
+      // would fail with "No JSON cached" until the user clicks Check
+      // manually — which is impossible while a drift is unresolved.
+      // Restore the pending-merge banner from clientStorage if a previous
+      // session left a PR un-merged.
+      if (msg.pendingPushUrl) showPendingMergeBanner(msg.pendingPushUrl);
+      doAutoCheckOnBoot(!!msg.hasAppliedSnapshot);
     } else if (msg.type === 'config-saved') {
       toast('✓ Config saved');
       maybeStartPolling();
     } else if (msg.type === 'diffs-computed') {
       renderDiffs(msg.diffs, msg.totalTokens, msg.placeholders);
+      // code.ts side may have auto-cleared pushPending if the new JSON aligns
+      // with the snapshot (= the merge happened). Reflect that here.
+      if (msg.pendingPushUrl) showPendingMergeBanner(msg.pendingPushUrl);
+      else if (pendingPushUrl) hidePendingMergeBanner();
     } else if (msg.type === 'progress') {
       $('status').textContent = ' · ' + msg.message;
     } else if (msg.type === 'apply-done') {
@@ -1714,6 +1879,8 @@
       const skipped = msg.skipped ? ` (${msg.skipped} skipped)` : '';
       const removed = msg.removed ? `, ${msg.removed} removed` : '';
       toast(`✓ Applied ${msg.count} tokens${removed}${skipped}`);
+      // Apply clears pushPending/pendingPushUrl on the code.ts side; mirror here.
+      if (pendingPushUrl) hidePendingMergeBanner();
       if (lastKnownRemoteSha) {
         lastSyncedSha = lastKnownRemoteSha;
         bannerDismissedForSha = null;
@@ -1728,6 +1895,22 @@
       setTimeout(() => fetchTokens(currentConfig), 500);
     } else if (msg.type === 'local-desync-computed') {
       updateDesyncBanner(msg.drifts);
+      // When state is fully aligned (no drift + no JSON diff + we've fetched),
+      // bump lastSyncedSha to the remote SHA we just observed. Without this,
+      // the SHA poller would surface a spurious "New version available" banner
+      // for an update the user has already incorporated (typically via a
+      // push + merge whose SHA never made it into lastSyncedSha).
+      const aligned = hasFetchedOnce
+        && (msg.drifts || []).length === 0
+        && currentDiffs.length === 0
+        && lastKnownRemoteSha
+        && lastSyncedSha !== lastKnownRemoteSha;
+      if (aligned) {
+        lastSyncedSha = lastKnownRemoteSha;
+        bannerDismissedForSha = null;
+        parent.postMessage({ pluginMessage: { type: 'save-synced-sha', sha: lastSyncedSha } }, '*');
+        toggleBanner(false);
+      }
     } else if (msg.type === 'revert-done') {
       $('status').textContent = '';
       const n = msg.count;

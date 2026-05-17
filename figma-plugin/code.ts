@@ -967,6 +967,21 @@ async function detectAddedItems(): Promise<DriftItem[]> {
     if (t.type === "shadow") existingShadowNames.add(normalizeStyleName(styleNameFromPath(t.path)));
   }
 
+  // Also exclude items already present in the snapshot. After a push that adds a
+  // token, the snapshot is updated immediately but the JSON only catches up on
+  // PR merge — so without this check the freshly-pushed item would surface as
+  // an ADDED drift again (alongside the "PR pending merge" banner).
+  const snapshot: { [k: string]: any } | null = await figma.clientStorage.getAsync(SNAPSHOT_KEY);
+  const snapshotPaths = new Set<string>(snapshot ? Object.keys(snapshot) : []);
+  const snapshotTypographyNames = new Set<string>();
+  const snapshotShadowNames = new Set<string>();
+  if (snapshot) {
+    for (const [path, entry] of Object.entries(snapshot)) {
+      if (entry.type === "typography") snapshotTypographyNames.add(normalizeStyleName(styleNameFromPath(path)));
+      if (entry.type === "shadow") snapshotShadowNames.add(normalizeStyleName(styleNameFromPath(path)));
+    }
+  }
+
   // 1. Variables
   const collections = await figma.variables.getLocalVariableCollectionsAsync();
   const collection = collections.find(c => c.name === "Somfy Tokens");
@@ -981,6 +996,7 @@ async function detectAddedItems(): Promise<DriftItem[]> {
       if (!variable) continue;
       const dotPath = variable.name.replace(/\//g, ".").replace(/\bbase\b/g, "_base");
       if (existingPaths.has(dotPath)) continue;
+      if (snapshotPaths.has(dotPath)) continue;
 
       const tokenType = inferTokenTypeFromVariable(variable, dotPath);
       if (!tokenType) continue;
@@ -1001,6 +1017,7 @@ async function detectAddedItems(): Promise<DriftItem[]> {
   for (const style of textStyles) {
     const norm = normalizeStyleName(style.name);
     if (existingTypographyNames.has(norm)) continue;
+    if (snapshotTypographyNames.has(norm)) continue;
     const props = readTextStyleProps(style);
     const pathSuffix = styleNameToPathSuffix(style.name);
     const prefix = inferStylePrefix("typography");
@@ -1019,6 +1036,7 @@ async function detectAddedItems(): Promise<DriftItem[]> {
   for (const style of effectStyles) {
     const norm = normalizeStyleName(style.name);
     if (existingShadowNames.has(norm)) continue;
+    if (snapshotShadowNames.has(norm)) continue;
     const props = readEffectStyleProps(style);
     if (!props) continue;
     const pathSuffix = styleNameToPathSuffix(style.name);
@@ -1594,13 +1612,15 @@ figma.ui.onmessage = async (msg) => {
       // Détecte si une collection Somfy existe déjà (= sync précédent)
       const collections = await figma.variables.getLocalVariableCollectionsAsync();
       const hasExistingCollection = collections.some(c => c.name === "Somfy Tokens");
+      const pendingPushUrl = await figma.clientStorage.getAsync("pendingPushUrl");
       figma.ui.postMessage({
         type: "config-loaded",
         config,
         lastSyncedSha,
         hasExistingCollection,
         hasAppliedSnapshot,
-        pollInterval
+        pollInterval,
+        pendingPushUrl: pendingPushUrl || null
       });
     }
 
@@ -1631,13 +1651,118 @@ figma.ui.onmessage = async (msg) => {
       const lightModeId = collection ? (collection.modes.find(m => m.name === "Light")?.modeId || collection.modes[0]?.modeId || "") : "";
       const darkModeId = collection ? (collection.modes.find(m => m.name === "Dark")?.modeId || "") : "";
 
-      const snapshot = await figma.clientStorage.getAsync(SNAPSHOT_KEY);
+      let snapshot = await figma.clientStorage.getAsync(SNAPSHOT_KEY) as { [k: string]: any } | null;
+
+      // Ghost snapshot cleanup: prune entries whose path is gone from BOTH the
+      // new JSON and Figma. These are "deleted" drifts that would surface
+      // forever otherwise (the entity no longer exists anywhere — there's
+      // nothing left to push or revert). Typical trigger: state desync after
+      // a merge/Apply ordering mishap (e.g. Apply with a stale cachedTokens
+      // re-creating already-deleted items, then deletion propagating).
+      if (snapshot) {
+        const cachedPaths = new Set<string>();
+        for (const t of tokens) cachedPaths.add(t.path);
+        // Build ID sets from the existing maps so the "still in Figma" check is
+        // done against entities currently in the collection / local styles list.
+        // We can't trust figma.variables.getVariableByIdAsync() here: it can
+        // return non-null for variables that have been removed from the
+        // collection (stale Figma reference), which would keep ghost entries
+        // alive forever.
+        const varIds = new Set<string>();
+        for (const v of localMap.values()) if (v && v.id) varIds.add(v.id);
+        const textStyleIds = new Set<string>();
+        for (const s of textStyles.values()) if (s && s.id) textStyleIds.add(s.id);
+        const effectStyleIds = new Set<string>();
+        for (const s of effectStyles.values()) if (s && s.id) effectStyleIds.add(s.id);
+
+        const cleaned: { [k: string]: any } = {};
+        let pruned = 0;
+        for (const [path, entry] of Object.entries(snapshot)) {
+          if (cachedPaths.has(path)) { cleaned[path] = entry; continue; }
+          let inFigma = false;
+          if (SUPPORTED_VAR_TYPES.has(entry.type)) {
+            if (entry.figmaId && varIds.has(entry.figmaId)) inFigma = true;
+            else if (localMap.get(path)) inFigma = true;
+          } else if (entry.type === "typography") {
+            if (entry.figmaId && textStyleIds.has(entry.figmaId)) inFigma = true;
+            else {
+              const name = normalizeStyleName(styleNameFromPath(path));
+              if (textStyles.get(name)) inFigma = true;
+            }
+          } else if (entry.type === "shadow") {
+            if (entry.figmaId && effectStyleIds.has(entry.figmaId)) inFigma = true;
+            else {
+              const name = normalizeStyleName(styleNameFromPath(path));
+              if (effectStyles.get(name)) inFigma = true;
+            }
+          }
+          if (inFigma) cleaned[path] = entry;
+          else pruned++;
+        }
+        if (pruned > 0) {
+          await figma.clientStorage.setAsync(SNAPSHOT_KEY, cleaned);
+          snapshot = cleaned;
+          console.log(`[snapshot] pruned ${pruned} ghost entries (gone from JSON + Figma)`);
+        }
+      }
+
+      // Auto-clear pushPending if the fetched JSON now matches our expected
+      // post-merge state (= the PR has been merged upstream). Uses two signals:
+      //   (1) the set of paths recorded at push time ("expectedPostMergePaths")
+      //   (2) variable value parity between snapshot and fetched JSON
+      // Runs after ghost cleanup so leftover ghosts don't block the check.
+      const pushPending = await figma.clientStorage.getAsync("pushPending");
+      if (pushPending && snapshot) {
+        const cachedByPath = new Map<string, FlatToken>();
+        for (const t of tokens) cachedByPath.set(t.path, t);
+        let allAligned = true;
+
+        // (1) Path set check — only when we have a recorded expectation from a
+        // push that happened with this version of the plugin. Without it, a
+        // deletion push that isn't merged yet would falsely look aligned (the
+        // value-only check doesn't see the missing path).
+        const expectedPaths = await figma.clientStorage.getAsync("expectedPostMergePaths") as string[] | null;
+        if (expectedPaths) {
+          const expected = new Set(expectedPaths);
+          const cachedPathSet = new Set(tokens.map(t => t.path));
+          if (expected.size !== cachedPathSet.size) {
+            allAligned = false;
+          } else {
+            for (const p of cachedPathSet) {
+              if (!expected.has(p)) { allAligned = false; break; }
+            }
+          }
+        }
+
+        // (2) Variable value parity — always run. Catches modify-pushes and
+        // confirms addition-pushes have actually landed in JSON.
+        if (allAligned) {
+          for (const [path, entry] of Object.entries(snapshot)) {
+            if (!SUPPORTED_VAR_TYPES.has(entry.type)) continue;
+            const cached = cachedByPath.get(path);
+            if (!cached) { allAligned = false; break; }
+            const snapSig = buildRemoteSnapshot({ path, type: entry.type, value: entry.value, isPlaceholder: false });
+            const cachedSig = buildRemoteSnapshot(cached);
+            if (snapSig !== cachedSig) { allAligned = false; break; }
+          }
+        }
+
+        if (allAligned) {
+          await figma.clientStorage.setAsync("pushPending", false);
+          await figma.clientStorage.setAsync("pendingPushUrl", null);
+          await figma.clientStorage.setAsync("expectedPostMergePaths", null);
+          console.log("[push] auto-cleared pushPending: fetched JSON aligns with expected post-merge state");
+        }
+      }
+
       const diffs = computeDiffs(tokens, localMap, textStyles, effectStyles, lightModeId, darkModeId, snapshot);
+      const pendingPushUrlAfter = await figma.clientStorage.getAsync("pendingPushUrl");
       figma.ui.postMessage({
         type: "diffs-computed",
         diffs,
         totalTokens: tokens.length,
-        placeholders: tokens.filter(t => t.isPlaceholder).length
+        placeholders: tokens.filter(t => t.isPlaceholder).length,
+        pendingPushUrl: pendingPushUrlAfter || null
       });
     }
 
@@ -1692,6 +1817,8 @@ figma.ui.onmessage = async (msg) => {
       // Apply syncs Figma to the JSON: snapshot and JSON are aligned again, so a previous
       // post-push state (if any) is no longer relevant.
       await figma.clientStorage.setAsync("pushPending", false);
+      await figma.clientStorage.setAsync("pendingPushUrl", null);
+      await figma.clientStorage.setAsync("expectedPostMergePaths", null);
 
       figma.ui.postMessage({
         type: "apply-done",
@@ -1841,6 +1968,17 @@ figma.ui.onmessage = async (msg) => {
         // Snapshot is now ahead of remote JSON until the PR is merged + re-applied.
         // The drift JSON fallback must be disabled while this flag is set.
         await figma.clientStorage.setAsync("pushPending", true);
+        // Persist the PR URL so the "PR pending merge" banner can survive
+        // plugin reloads and link to the PR directly.
+        if (msg.url) await figma.clientStorage.setAsync("pendingPushUrl", msg.url);
+        // Persist the exact set of token paths we expect the JSON to have once
+        // the PR is merged. The auto-clear in tokens-fetched compares cached
+        // paths to this set — handles addition + deletion pushes symmetrically
+        // (value parity alone misses deleted paths that are still pre-merge).
+        await figma.clientStorage.setAsync(
+          "expectedPostMergePaths",
+          cachedTokens.map(t => t.path)
+        );
         const drifts = await checkLocalDesync();
         figma.ui.postMessage({ type: "local-desync-computed", drifts });
       }
