@@ -20,12 +20,19 @@ Le fichier `somfy-tokens.json` au format W3C Design Tokens.
 Structure 4 couches : `primitives` → `semantic` → `composite` → `component`.
 
 ### 🎨 `figma-plugin/`
-Plugin Figma qui lit le JSON depuis GitHub et crée :
+Plugin Figma **bidirectionnel** entre le JSON GitHub et Figma :
+
+**JSON → Figma** (pull) :
 - Variables Figma (couleurs Light/Dark, dimensions, font weights/sizes/family)
 - Text Styles (fontSize lié aux Variables)
 - Effect Styles (shadows)
+- Détection de diffs (Added/Modified/Removed), résolution d'aliases, nommage auto.
 
-Détection de diffs (Added/Modified/Removed), résolution d'aliases, convention de nommage automatique.
+**Figma → JSON** (push) :
+- Détection automatique des dérives locales : variables/styles modifiés, renommés, supprimés, ou ajoutés directement dans Figma.
+- Création d'une PR GitHub en un clic (5 appels REST natifs, pas de backend), avec message + description + lien direct vers la PR.
+- Auto-fetch au boot + auto-refresh post-merge via polling SHA.
+- Bandeau persistant "PR pending merge" qui survit aux reloads et bloque Check/Apply tant que la PR n'est pas mergée (évite tout clobber de l'état local).
 
 → [README détaillé](./figma-plugin/README.md)
 
@@ -45,13 +52,20 @@ App desktop (Electron + React) pour éditer le JSON via une UI graphique :
 ```
 ┌─────────────────┐         ┌─────────────────┐         ┌─────────────────┐
 │  editor/        │         │  GitHub         │         │  figma-plugin/  │
-│  (édition UI)   │ ──PR──▶ │  tokens/*.json  │ ◀──API─ │  (sync Figma)   │
+│  (édition UI)   │ ──PR──▶ │  tokens/*.json  │ ◀─PR/API▶ (sync Figma)    │
 └─────────────────┘         └─────────────────┘         └─────────────────┘
 ```
 
-1. **Designer** ouvre l'`editor`, modifie des tokens, sauvegarde → PR créée sur GitHub
-2. **PR mergée** sur `main`
-3. **Designer** ouvre Figma, lance le plugin → tokens synchronisés dans Figma
+Deux points d'entrée d'édition possibles, tous deux passent par une PR :
+
+- **Via l'éditeur** : designer modifie via l'UI desktop → PR créée → merge → plugin Figma pull les changements.
+- **Via Figma** : designer ajoute / modifie / supprime des Variables ou Styles directement dans Figma → le plugin détecte le drift → push vers une PR GitHub → merge → état Figma + JSON re-aligné automatiquement.
+
+## Roadmap
+
+- ✅ **Phase 1** : POC fonctionnel one-way (JSON → Figma) + éditeur desktop.
+- ✅ **Phase 2** : Push bidirectionnel depuis Figma (modif / rename / delete / add) + UX drift/pending-merge.
+- ⏳ **Phase 3** : GitHub App + Cloudflare Worker (sécu prod, plus de PAT côté client), couche `semantic` complète, publication plugin sur l'org Figma.
 
 ## Setup pour un nouveau contributeur
 
@@ -65,14 +79,8 @@ Puis suivre le README de chaque composant selon ce qu'on veut faire :
 - **Tester le plugin Figma** → voir `figma-plugin/README.md`
 - **Modifier le JSON à la main** → éditer `tokens/somfy-tokens.json` et créer une PR
 
-## Roadmap
-
-- ✅ **Phase 1 (actuelle)** : POC fonctionnel, test solo / petit groupe
-- ⏳ **Phase 2** : GitHub App + Cloudflare Worker (sécu prod), versioning avancé, beta avec 2-3 designers
-- ⏳ **Phase 3** : Publication plugin sur org Figma, onboarding équipe, couche `semantic` complète
-
 ## Sécurité — important
 
-- Ne **jamais** committer un PAT GitHub dans le code ou des fichiers de config
-- Les PAT sont stockés en local : `clientStorage` (Figma) ou `electron-store` (editor)
-- Pour la phase 2, on bascule sur GitHub App + Worker pour ne plus exposer de PAT côté client
+- Ne **jamais** committer un PAT GitHub dans le code ou des fichiers de config.
+- Les PAT sont stockés en local : `clientStorage` (Figma) ou `electron-store` (editor).
+- En Phase 3, on bascule sur GitHub App + Worker pour ne plus exposer de PAT côté client.
