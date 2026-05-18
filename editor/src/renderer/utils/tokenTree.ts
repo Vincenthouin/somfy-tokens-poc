@@ -313,6 +313,251 @@ export function aliasTarget(value: string): string {
 }
 
 /**
+ * Rewrite all aliases in the tree according to a batch of path remappings.
+ * Used after renaming or moving a node: every alias `{oldPath}` becomes `{newPath}`.
+ * Mappings are processed in length-desc order so a deeper path is rewritten before
+ * one of its prefixes (avoids partial replacements).
+ * Returns the number of token values that were touched.
+ */
+export function rewriteAliasPaths(
+  tree: TokenFile,
+  mappings: Map<string, string>
+): number {
+  if (mappings.size === 0) return 0;
+  const sorted = Array.from(mappings.entries()).sort(
+    (a, b) => b[0].length - a[0].length
+  );
+
+  function replaceInValue(value: any): { value: any; changed: boolean } {
+    if (typeof value === 'string') {
+      let out = value;
+      let changed = false;
+      for (const [oldPath, newPath] of sorted) {
+        const oldRef = `{${oldPath}}`;
+        if (out.includes(oldRef)) {
+          out = out.split(oldRef).join(`{${newPath}}`);
+          changed = true;
+        }
+      }
+      return { value: out, changed };
+    }
+    if (Array.isArray(value)) {
+      let any = false;
+      const arr = value.map((v) => {
+        const r = replaceInValue(v);
+        if (r.changed) any = true;
+        return r.value;
+      });
+      return { value: arr, changed: any };
+    }
+    if (value && typeof value === 'object') {
+      let any = false;
+      const out: any = {};
+      for (const k of Object.keys(value)) {
+        const r = replaceInValue(value[k]);
+        if (r.changed) any = true;
+        out[k] = r.value;
+      }
+      return { value: out, changed: any };
+    }
+    return { value, changed: false };
+  }
+
+  let tokensTouched = 0;
+  function walk(node: any) {
+    if (isToken(node)) {
+      let touched = false;
+      const v = replaceInValue(node.$value);
+      if (v.changed) { node.$value = v.value; touched = true; }
+      if (node.$extensions?.modes) {
+        const m = node.$extensions.modes;
+        if (m.light !== undefined) {
+          const r = replaceInValue(m.light);
+          if (r.changed) { m.light = r.value; touched = true; }
+        }
+        if (m.dark !== undefined) {
+          const r = replaceInValue(m.dark);
+          if (r.changed) { m.dark = r.value; touched = true; }
+        }
+      }
+      if (touched) tokensTouched++;
+      return;
+    }
+    if (node && typeof node === 'object') {
+      for (const k of Object.keys(node)) walk(node[k]);
+    }
+  }
+
+  walk(tree);
+  return tokensTouched;
+}
+
+/**
+ * Build path-remapping pairs for every token under newRootPath, where the old
+ * fullname is reconstructed from oldPrefix + the relative-to-newRoot suffix.
+ * Used by renameNode / moveNode to feed rewriteAliasPaths.
+ */
+function pathMappingsForSubtree(
+  tree: TokenFile,
+  newRootPath: string[],
+  oldPrefix: string
+): Map<string, string> {
+  const mappings = new Map<string, string>();
+  const newPrefix = newRootPath.join('.');
+  const root = getNodeAt(tree, newRootPath);
+  if (!root) return mappings;
+
+  function walk(node: any, rel: string[]) {
+    if (isToken(node)) {
+      const tail = rel.join('.');
+      const oldFull = tail ? `${oldPrefix}.${tail}` : oldPrefix;
+      const newFull = tail ? `${newPrefix}.${tail}` : newPrefix;
+      mappings.set(oldFull, newFull);
+      return;
+    }
+    if (node && typeof node === 'object') {
+      for (const k of Object.keys(node)) walk(node[k], [...rel, k]);
+    }
+  }
+
+  walk(root, []);
+  return mappings;
+}
+
+/**
+ * Rename a node (group OR token) in place. Preserves the parent's key order.
+ * Rewrites every alias pointing at the renamed node (or its descendants) to
+ * the new path. Throws on collision or empty name. Mutates the tree.
+ * Returns `aliasesUpdated` = number of tokens whose value was rewritten.
+ */
+export function renameNode(
+  tree: TokenFile,
+  path: string[],
+  newName: string
+): { aliasesUpdated: number; newPath: string[] } {
+  if (!newName || !newName.trim()) throw new Error('Le nom est requis');
+  newName = newName.trim();
+  if (path.length === 0) throw new Error('Impossible de renommer la racine');
+  const oldName = path[path.length - 1];
+  if (newName === oldName) return { aliasesUpdated: 0, newPath: path };
+  if (newName.includes('.') || newName.includes('/')) {
+    throw new Error('Le nom ne peut pas contenir "." ou "/"');
+  }
+
+  const parentPath = path.slice(0, -1);
+  const parent: any =
+    parentPath.length === 0 ? (tree as any) : getNodeAt(tree, parentPath);
+  if (!parent || typeof parent !== 'object') {
+    throw new Error('Chemin parent invalide');
+  }
+  if (parent[newName] !== undefined) {
+    throw new Error(`Un élément nommé "${newName}" existe déjà à cet emplacement`);
+  }
+
+  // Rebuild parent to preserve insertion order: replace `oldName` slot with `newName`.
+  const rebuilt: any = {};
+  for (const k of Object.keys(parent)) {
+    rebuilt[k === oldName ? newName : k] = parent[k];
+  }
+  for (const k of Object.keys(parent)) delete parent[k];
+  Object.assign(parent, rebuilt);
+
+  const newPath = [...parentPath, newName];
+  const oldPrefix = path.join('.');
+  const mappings = pathMappingsForSubtree(tree, newPath, oldPrefix);
+  const aliasesUpdated = rewriteAliasPaths(tree, mappings);
+  return { aliasesUpdated, newPath };
+}
+
+/**
+ * Move a node (group OR token) to a different parent and/or position. Optionally
+ * places it before or after a sibling in the destination. Rejects moving a node
+ * into itself or a descendant. Rewrites aliases when paths change. Mutates the tree.
+ *
+ * `placement.beforeName` / `placement.afterName` controls reorder within the target
+ * parent. Omit both to append at the end.
+ */
+export function moveNode(
+  tree: TokenFile,
+  fromPath: string[],
+  toParentPath: string[],
+  placement?: { beforeName?: string; afterName?: string }
+): { aliasesUpdated: number; newPath: string[] } {
+  if (fromPath.length === 0) throw new Error('Impossible de déplacer la racine');
+  const fromKey = fromPath.join('.');
+  const toKey = toParentPath.join('.');
+  if (toKey === fromKey || toKey.startsWith(fromKey + '.')) {
+    throw new Error('Impossible de déplacer un groupe dans lui-même ou dans un de ses descendants');
+  }
+
+  const fromName = fromPath[fromPath.length - 1];
+  const fromParentPath = fromPath.slice(0, -1);
+  const fromParent: any =
+    fromParentPath.length === 0 ? (tree as any) : getNodeAt(tree, fromParentPath);
+  if (!fromParent || typeof fromParent !== 'object' || fromParent[fromName] === undefined) {
+    throw new Error('Source invalide');
+  }
+
+  const toParent: any =
+    toParentPath.length === 0 ? (tree as any) : getNodeAt(tree, toParentPath);
+  if (toParent === null || toParent === undefined) {
+    throw new Error('Destination invalide');
+  }
+  if (toParentPath.length > 0 && !isGroup(toParent)) {
+    throw new Error('La destination doit être un groupe');
+  }
+
+  const sameParent = fromParent === toParent;
+  if (!sameParent && toParent[fromName] !== undefined) {
+    throw new Error(`Un élément nommé "${fromName}" existe déjà dans la destination`);
+  }
+
+  const node = fromParent[fromName];
+  delete fromParent[fromName];
+
+  // Rebuild target to enforce ordering. If no placement given, append.
+  const before = placement?.beforeName;
+  const after = placement?.afterName;
+  const rebuilt: any = {};
+  let inserted = false;
+  for (const k of Object.keys(toParent)) {
+    if (before !== undefined && k === before && !inserted) {
+      rebuilt[fromName] = node;
+      inserted = true;
+    }
+    rebuilt[k] = toParent[k];
+    if (after !== undefined && k === after && !inserted) {
+      rebuilt[fromName] = node;
+      inserted = true;
+    }
+  }
+  if (!inserted) rebuilt[fromName] = node;
+  for (const k of Object.keys(toParent)) delete toParent[k];
+  Object.assign(toParent, rebuilt);
+
+  const newPath = [...toParentPath, fromName];
+  // If the path actually changed, rewrite aliases.
+  let aliasesUpdated = 0;
+  if (newPath.join('.') !== fromKey) {
+    const mappings = pathMappingsForSubtree(tree, newPath, fromKey);
+    aliasesUpdated = rewriteAliasPaths(tree, mappings);
+  }
+  return { aliasesUpdated, newPath };
+}
+
+/**
+ * Check whether `candidatePath` is a descendant of (or equal to) `ancestorPath`.
+ * Used to reject drops into a node's own subtree.
+ */
+export function isDescendantPath(candidatePath: string[], ancestorPath: string[]): boolean {
+  if (candidatePath.length < ancestorPath.length) return false;
+  for (let i = 0; i < ancestorPath.length; i++) {
+    if (candidatePath[i] !== ancestorPath[i]) return false;
+  }
+  return true;
+}
+
+/**
  * Whether a token has at least one "empty" value somewhere — either the top-level
  * value is an empty string, or one of its mode entries (light/dark) is.
  * Used to surface ⚠ warnings in the UI without blocking the save.

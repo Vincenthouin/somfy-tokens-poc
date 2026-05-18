@@ -17,6 +17,8 @@ import {
   findReferencesUnder,
   getNodeAt,
   isGroup,
+  renameNode,
+  moveNode,
   ALL_LAYERS,
 } from './utils/tokenTree';
 import { computeDiff, totalChanges } from './utils/diff';
@@ -30,6 +32,7 @@ import { TokenTable } from './components/TokenTable';
 import { TokenInspector } from './components/TokenInspector';
 import { FilterPills, matchesFilter } from './components/FilterPills';
 import { ProjectSettingsModal } from './components/ProjectSettingsModal';
+import { DeleteWithRefsModal } from './components/DeleteWithRefsModal';
 import { useTreeHistory } from './utils/useTreeHistory';
 
 interface Props {
@@ -64,6 +67,13 @@ export const EditorScreen: React.FC<Props> = ({ project, onProjectChange, onBack
 
   const [addTokenModal, setAddTokenModal] = useState<{ initialPath: string[] } | null>(null);
   const [addGroupModal, setAddGroupModal] = useState<{ initialPath: string[] } | null>(null);
+  const [deleteRefsModal, setDeleteRefsModal] = useState<{
+    targetPath: string;
+    refs: Array<{ referenced: string; referencedBy: string[] }>;
+  } | null>(null);
+  // Local-project auto-save: "idle" when caught up, "pending" when a save is
+  // debounced, "saving" during the IPC call, "saved" briefly after success.
+  const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'pending' | 'saving' | 'saved'>('idle');
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [multiSelected, setMultiSelected] = useState<Set<string>>(new Set());
@@ -122,6 +132,36 @@ export const EditorScreen: React.FC<Props> = ({ project, onProjectChange, onBack
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [undo, redo]);
+
+  // Auto-save for local projects: debounce every tree mutation (token edits,
+  // group add/delete/rename/move, undo/redo) and persist silently. The diff
+  // vs originalTree is the source of truth for "needs saving".
+  useEffect(() => {
+    if (!isLocal || !tree || !originalTree) return;
+    // Quick path: if there's nothing pending, stay idle.
+    if (JSON.stringify(tree) === JSON.stringify(originalTree)) {
+      setAutoSaveStatus((prev) => (prev === 'saved' ? prev : 'idle'));
+      return;
+    }
+    setAutoSaveStatus('pending');
+    const handle = window.setTimeout(async () => {
+      setAutoSaveStatus('saving');
+      try {
+        await window.api.saveLocal({ projectId: project.id, tokens: tree });
+        setOriginalTree(cloneTree(tree));
+        setAutoSaveStatus('saved');
+        // Drop the "saved" badge after a moment so it stays unobtrusive.
+        window.setTimeout(() => {
+          setAutoSaveStatus((prev) => (prev === 'saved' ? 'idle' : prev));
+        }, 1500);
+      } catch (e: any) {
+        console.error('[auto-save] failed:', e);
+        setAutoSaveStatus('idle');
+        setToast({ msg: `Sauvegarde locale échouée : ${e.message || e}` });
+      }
+    }, 600);
+    return () => window.clearTimeout(handle);
+  }, [tree, originalTree, isLocal, project.id]);
 
   const reload = async () => {
     setLoading(true);
@@ -321,6 +361,143 @@ export const EditorScreen: React.FC<Props> = ({ project, onProjectChange, onBack
     if (sidebarPath.join('.').startsWith(fullName)) setSidebarPath([]);
   };
 
+  // ----- Sidebar tree mutations (rename / move / dup / unified add+delete) -----
+
+  // Unified delete: works for token OR group. Routes blocked-with-refs cases to
+  // the modal, simple cases to a native confirm. Mirrors handleDeleteToken /
+  // handleDeleteGroup behavior but with a richer UI for the dependency case.
+  const handleSidebarDelete = (path: string[]) => {
+    if (!tree || path.length === 0) return;
+    const node = getNodeAt(tree, path);
+    if (!node) return;
+    const fullName = path.join('.');
+    const isGroupNode = isGroup(node);
+    const refs = isGroupNode
+      ? findReferencesUnder(tree, path)
+      : findReferences(tree, fullName).length > 0
+        ? [{ referenced: fullName, referencedBy: findReferences(tree, fullName).map((p) => p.join('.')) }]
+        : [];
+    if (refs.length > 0) {
+      setDeleteRefsModal({ targetPath: fullName, refs });
+      return;
+    }
+    if (isGroupNode) {
+      const flatUnder = flattenTokens(tree).filter(
+        (t) => t.fullName === fullName || t.fullName.startsWith(fullName + '.')
+      );
+      if (!confirm(`Supprimer "${fullName}" et ses ${flatUnder.length} token(s) ?`)) return;
+    } else {
+      if (!confirm(`Supprimer le token "${fullName}" ?`)) return;
+    }
+    const next = cloneTree(tree);
+    deleteNodeAt(next, path);
+    setTree(next);
+    if (selectedTokenPath && selectedTokenPath.join('.') === fullName) setSelectedTokenPath(null);
+    if (sidebarPath.join('.').startsWith(fullName)) setSidebarPath([]);
+  };
+
+  const handleRenameNode = (path: string[], newName: string) => {
+    if (!tree) return;
+    const next = cloneTree(tree);
+    try {
+      const { aliasesUpdated, newPath } = renameNode(next, path, newName);
+      setTree(next);
+      // Move selection / sidebar focus to the new path if they pointed at the renamed node.
+      const oldKey = path.join('.');
+      if (sidebarPath.join('.') === oldKey) setSidebarPath(newPath);
+      if (selectedTokenPath && selectedTokenPath.join('.') === oldKey) setSelectedTokenPath(newPath);
+      // Keep the renamed group expanded if it was.
+      setExpandedGroups((prev) => {
+        if (!prev.has(oldKey)) return prev;
+        const out = new Set(prev);
+        out.delete(oldKey);
+        out.add(newPath.join('.'));
+        return out;
+      });
+      if (aliasesUpdated > 0) {
+        setToast({ msg: `Renamed — ${aliasesUpdated} alias${aliasesUpdated > 1 ? 'es' : ''} updated` });
+      }
+    } catch (e: any) {
+      alert(e.message || 'Erreur lors du renommage');
+    }
+  };
+
+  const handleMoveNode = (
+    fromPath: string[],
+    toParentPath: string[],
+    placement?: { beforeName?: string; afterName?: string }
+  ) => {
+    if (!tree) return;
+    const next = cloneTree(tree);
+    try {
+      const { aliasesUpdated, newPath } = moveNode(next, fromPath, toParentPath, placement);
+      setTree(next);
+      const oldKey = fromPath.join('.');
+      if (sidebarPath.join('.') === oldKey) setSidebarPath(newPath);
+      if (selectedTokenPath && selectedTokenPath.join('.') === oldKey) setSelectedTokenPath(newPath);
+      setExpandedGroups((prev) => {
+        if (!prev.has(oldKey)) return prev;
+        const out = new Set(prev);
+        out.delete(oldKey);
+        out.add(newPath.join('.'));
+        return out;
+      });
+      if (aliasesUpdated > 0) {
+        setToast({ msg: `Moved — ${aliasesUpdated} alias${aliasesUpdated > 1 ? 'es' : ''} updated` });
+      }
+    } catch (e: any) {
+      alert(e.message || 'Erreur lors du déplacement');
+    }
+  };
+
+  // Duplicate a token OR a group. Auto-suffix the name to avoid collision.
+  const handleDuplicateNode = (path: string[]) => {
+    if (!tree || path.length === 0) return;
+    const node = getNodeAt(tree, path);
+    if (!node) return;
+    const parentPath = path.slice(0, -1);
+    const parent = parentPath.length === 0 ? (tree as any) : getNodeAt(tree, parentPath);
+    if (!parent || typeof parent !== 'object') return;
+    const baseName = path[path.length - 1];
+    let candidate = `${baseName}-copy`;
+    let i = 2;
+    while (parent[candidate] !== undefined) {
+      candidate = `${baseName}-copy-${i++}`;
+    }
+    const next = cloneTree(tree);
+    const nextParent: any =
+      parentPath.length === 0 ? (next as any) : getNodeAt(next, parentPath);
+    nextParent[candidate] = JSON.parse(JSON.stringify(node));
+    setTree(next);
+    setSidebarPath([...parentPath, candidate]);
+  };
+
+  // Inline add from the sidebar tree (no modal). For tokens we route to the
+  // existing AddTokenModal because the value editor lives there.
+  const handleSidebarAddGroup = (parentPath: string[], name: string) => {
+    if (!tree) return;
+    const next = cloneTree(tree);
+    try {
+      addGroup(next, parentPath, name);
+      setTree(next);
+      // Expand the parent so the new group is visible.
+      const parentKey = parentPath.join('.');
+      if (parentPath.length > 0 && !expandedGroups.has(parentKey)) {
+        setExpandedGroups((prev) => {
+          const out = new Set(prev);
+          out.add(parentKey);
+          return out;
+        });
+      }
+    } catch (e: any) {
+      alert(e.message || 'Erreur');
+    }
+  };
+
+  const handleSidebarAddToken = (parentPath: string[]) => {
+    setAddTokenModal({ initialPath: parentPath });
+  };
+
   // ----- Save / PR / Export -----
 
   const diff = useMemo(() => {
@@ -448,6 +625,14 @@ export const EditorScreen: React.FC<Props> = ({ project, onProjectChange, onBack
               {project.github.branch}
             </span>
           )}
+          {isLocal && (
+            <span className={`autosave-pill autosave-${autoSaveStatus}`}>
+              {autoSaveStatus === 'pending' && '✎ Modifications en cours…'}
+              {autoSaveStatus === 'saving' && '⟳ Sauvegarde…'}
+              {autoSaveStatus === 'saved' && '✓ Sauvegardé'}
+              {autoSaveStatus === 'idle' && '✓ À jour'}
+            </span>
+          )}
         </div>
         <div className="header-actions-v2">
           <input
@@ -522,6 +707,12 @@ export const EditorScreen: React.FC<Props> = ({ project, onProjectChange, onBack
         onSelect={(p) => setSidebarPath(p)}
         expanded={expandedGroups}
         onToggle={toggleGroup}
+        onRename={handleRenameNode}
+        onMove={handleMoveNode}
+        onAddGroup={handleSidebarAddGroup}
+        onAddToken={handleSidebarAddToken}
+        onDuplicate={handleDuplicateNode}
+        onDelete={handleSidebarDelete}
       />
 
       <main className="main-panel">
@@ -638,7 +829,7 @@ export const EditorScreen: React.FC<Props> = ({ project, onProjectChange, onBack
         </div>
       )}
 
-      {hasChanges && (
+      {hasChanges && !isLocal && (
         <div className="save-bar-v2">
           <div className="save-bar-summary">
             <span className="save-bar-count">{totalChanges(diff!)} modification(s)</span>
@@ -706,6 +897,25 @@ export const EditorScreen: React.FC<Props> = ({ project, onProjectChange, onBack
           initialPath={addGroupModal.initialPath}
           onConfirm={handleAddGroup}
           onCancel={() => setAddGroupModal(null)}
+        />
+      )}
+      {deleteRefsModal && (
+        <DeleteWithRefsModal
+          targetPath={deleteRefsModal.targetPath}
+          refs={deleteRefsModal.refs}
+          onJumpToToken={(fullName) => {
+            const p = fullName.split('.');
+            setSelectedTokenPath(p);
+            // Set sidebar context to the parent so the table is filtered nearby.
+            setSidebarPath(p.slice(0, -1));
+            // Auto-expand ancestors so the row is visible.
+            setExpandedGroups((prev) => {
+              const out = new Set(prev);
+              for (let i = 1; i <= p.length - 1; i++) out.add(p.slice(0, i).join('.'));
+              return out;
+            });
+          }}
+          onClose={() => setDeleteRefsModal(null)}
         />
       )}
       {toast && (
