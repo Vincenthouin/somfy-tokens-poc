@@ -1,19 +1,16 @@
 import * as fs from "fs";
 import * as path from "path";
 
-const TOKEN_FILE = path.join(__dirname, "somfy-tokens.json");
-const OUTPUT_DIR = path.join(__dirname, "ColorsIntegration.xcassets");
-
 // --- Types ---
 
-interface ColorComponents {
+export interface ColorComponents {
   red: string;
   green: string;
   blue: string;
   alpha: string;
 }
 
-interface FlatToken {
+export interface FlatToken {
   pathParts: string[];
   light: string;
   dark?: string;
@@ -21,7 +18,7 @@ interface FlatToken {
 
 // --- Color utilities ---
 
-function hexToComponents(hex: string): ColorComponents {
+export function hexToComponents(hex: string): ColorComponents {
   let h = hex.replace("#", "");
   if (h.length === 3) h = h.split("").map((c) => c + c).join("");
   if (h.length === 6) h += "FF";
@@ -39,7 +36,7 @@ function hexToComponents(hex: string): ColorComponents {
   };
 }
 
-function makeColorEntry(
+export function makeColorEntry(
   hex: string,
   appearances?: Array<{ appearance: string; value: string }>
 ) {
@@ -54,7 +51,7 @@ function makeColorEntry(
   return entry;
 }
 
-function generateColorsetContents(light: string, dark?: string): object {
+export function generateColorsetContents(light: string, dark?: string): object {
   const colors: unknown[] = [makeColorEntry(light)];
   if (dark) {
     colors.push(
@@ -69,7 +66,7 @@ function generateColorsetContents(light: string, dark?: string): object {
 
 // --- Token flattening ---
 
-function flattenColorTokens(
+export function flattenColorTokens(
   obj: Record<string, unknown>,
   pathParts: string[],
   tokens: FlatToken[] = []
@@ -85,7 +82,6 @@ function flattenColorTokens(
     const dark =
       !isDarkPlaceholder && typeof value !== "string" ? value.dark : undefined;
 
-    // Skip tokens with empty light value
     if (!light) return tokens;
 
     const normalizedPath = pathParts.map((p) => (p === "_base" ? "base" : p));
@@ -122,11 +118,10 @@ function ensureFolderWithNamespace(folderPath: string): void {
   }
 }
 
-function writeColorset(outputDir: string, token: FlatToken): void {
+export function writeColorset(outputDir: string, token: FlatToken): void {
   const folderParts = token.pathParts.slice(0, -1);
   const colorsetName = token.pathParts.at(-1)!;
 
-  // Ensure each intermediate folder has a namespace Contents.json
   let current = outputDir;
   for (const part of folderParts) {
     current = path.join(current, part);
@@ -144,30 +139,37 @@ function writeColorset(outputDir: string, token: FlatToken): void {
 
 // --- Main ---
 
-const json = JSON.parse(fs.readFileSync(TOKEN_FILE, "utf-8"));
-const primitiveColors = (json.primitives as Record<string, unknown>)
-  ?.loop as Record<string, unknown>;
-const colorTokens = primitiveColors?.color as Record<string, unknown>;
+if (require.main === module) {
+  const TOKEN_FILE = path.join(__dirname, "somfy-tokens.json");
+  const OUTPUT_DIR = path.join(__dirname, "ColorsIntegration.xcassets");
 
-if (!colorTokens) {
-  console.error("No primitives.loop.color found in token file");
-  process.exit(1);
+  const json = JSON.parse(fs.readFileSync(TOKEN_FILE, "utf-8"));
+  const primitiveColors = (json.primitives as Record<string, unknown>)
+    ?.loop as Record<string, unknown>;
+  const colorTokens = primitiveColors?.color as Record<string, unknown>;
+
+  if (!colorTokens) {
+    console.error("No primitives.loop.color found in token file");
+    process.exit(1);
+  }
+
+  if (fs.existsSync(OUTPUT_DIR)) {
+    fs.rmSync(OUTPUT_DIR, { recursive: true });
+  }
+  fs.mkdirSync(OUTPUT_DIR);
+  fs.writeFileSync(
+    path.join(OUTPUT_DIR, "Contents.json"),
+    JSON.stringify({ info: { author: "xcode", version: 1 } }, null, 2) + "\n"
+  );
+
+  const tokens = flattenColorTokens(colorTokens, ["loop", "color"]);
+
+  for (const token of tokens) {
+    writeColorset(OUTPUT_DIR, token);
+  }
+
+  const darkCount = tokens.filter((t) => t.dark).length;
+  console.log(
+    `Generated ${tokens.length} colorsets (${darkCount} with dark variant) → ${OUTPUT_DIR}`
+  );
 }
-
-// Clean and recreate output dir
-if (fs.existsSync(OUTPUT_DIR)) {
-  fs.rmSync(OUTPUT_DIR, { recursive: true });
-}
-fs.mkdirSync(OUTPUT_DIR);
-writeJson(path.join(OUTPUT_DIR, "Contents.json"), {
-  info: { author: "xcode", version: 1 },
-});
-
-const tokens = flattenColorTokens(colorTokens, ["loop", "color"]);
-
-for (const token of tokens) {
-  writeColorset(OUTPUT_DIR, token);
-}
-
-const darkCount = tokens.filter((t) => t.dark).length;
-console.log(`Generated ${tokens.length} colorsets (${darkCount} with dark variant) → ${OUTPUT_DIR}`);
