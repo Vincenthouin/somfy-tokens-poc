@@ -23,3 +23,6 @@ npm-debug.log*
 # Plugin compiled output
 figma-plugin/code.js
 figma-plugin/code.js.map
+
+# Generated xcassets (regenerate with: cd tokens && npm run generate:xcassets)
+tokens/ColorsIntegration.xcassets

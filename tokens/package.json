@@ -1,0 +1,12 @@
+{
+  "name": "somfy-tokens-scripts",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "generate:xcassets": "tsx generate-xcassets.ts"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.5.4"
+  }
+}
