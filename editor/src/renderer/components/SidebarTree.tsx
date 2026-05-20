@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { TokenFile } from '../../shared/types';
-import { isGroup, getNodeAt, ALL_LAYERS, isDescendantPath } from '../utils/tokenTree';
+import { isGroup, getNodeAt, isDescendantPath } from '../utils/tokenTree';
 import { TreeContextMenu, TreeContextMenuItem } from './TreeContextMenu';
 
 interface Props {
@@ -20,6 +20,8 @@ interface Props {
   onAddToken?: (parentPath: string[]) => void; // routes to AddTokenModal
   onDuplicate?: (path: string[]) => void;
   onDelete?: (path: string[]) => void;
+  // Opens the modal-based "Add group" picker (used by the sidebar header button).
+  onOpenAddGroupModal?: (initialPath: string[]) => void;
 }
 
 type DropZone = 'before' | 'inside' | 'after';
@@ -72,24 +74,23 @@ export const SidebarTree: React.FC<Props> = (props) => {
       }
       if (selectedPath.length === 0) return;
       const path = selectedPath;
-      const isLayer = path.length === 1;
 
       if (e.key === 'F2' || (e.key === 'Enter' && !e.metaKey && !e.ctrlKey)) {
-        if (!isLayer && props.onRename) {
+        if (props.onRename) {
           e.preventDefault();
           setEditingPath(path);
         }
         return;
       }
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (!isLayer && props.onDelete) {
+        if (props.onDelete) {
           e.preventDefault();
           props.onDelete(path);
         }
         return;
       }
       const cmd = e.metaKey || e.ctrlKey;
-      if (cmd && (e.key === 'd' || e.key === 'D') && props.onDuplicate && !isLayer) {
+      if (cmd && (e.key === 'd' || e.key === 'D') && props.onDuplicate) {
         e.preventDefault();
         props.onDuplicate(path);
         return;
@@ -130,12 +131,11 @@ export const SidebarTree: React.FC<Props> = (props) => {
 
   const buildMenuItems = (ctx: ContextState): Array<TreeContextMenuItem | 'separator'> => {
     const { path, isToken } = ctx;
-    const isLayer = path.length === 1;
     const items: Array<TreeContextMenuItem | 'separator'> = [
       {
         label: 'Rename',
         shortcut: 'F2',
-        disabled: isLayer || !props.onRename,
+        disabled: !props.onRename,
         onClick: () => setEditingPath(path),
       },
     ];
@@ -155,7 +155,7 @@ export const SidebarTree: React.FC<Props> = (props) => {
         onClick: () => props.onAddToken!(path),
       });
     }
-    if (props.onDuplicate && !isLayer) {
+    if (props.onDuplicate) {
       items.push({
         label: 'Duplicate',
         shortcut: '⌘D',
@@ -166,7 +166,7 @@ export const SidebarTree: React.FC<Props> = (props) => {
     items.push({
       label: 'Delete',
       shortcut: '⌫',
-      disabled: isLayer || !props.onDelete,
+      disabled: !props.onDelete,
       danger: true,
       onClick: () => props.onDelete!(path),
     });
@@ -255,19 +255,27 @@ export const SidebarTree: React.FC<Props> = (props) => {
     endDrag();
   };
 
-  // Drop on the "empty space" at the bottom of the sidebar = move to top-level
-  // (parent = []). Only meaningful for top-level groups.
+  // Drop in the empty gutter below the rows. Most common case: the user
+  // hovered the bottom of a row to drop "after" it, then released a few
+  // pixels lower (outside the row's bbox). dropTarget is still set, so we
+  // honor it. Otherwise, just dismiss the drag silently.
   const handleDropOnEmpty = (e: React.DragEvent) => {
     e.preventDefault();
     if (!dragInfo || !props.onMove) {
       endDrag();
       return;
     }
-    if (dragInfo.fromPath.length > 1) {
-      // Moving a sub-node to top-level only makes sense if it's a valid layer name.
-      // To avoid surprises, require the source to be a top-level item.
-      endDrag();
-      return;
+    if (dropTarget && !isDescendantPath(dropTarget.path, dragInfo.fromPath)) {
+      const path = dropTarget.path;
+      if (dropTarget.zone === 'inside') {
+        props.onMove(dragInfo.fromPath, path);
+      } else {
+        const parent = path.slice(0, -1);
+        const sibling = path[path.length - 1];
+        const placement =
+          dropTarget.zone === 'before' ? { beforeName: sibling } : { afterName: sibling };
+        props.onMove(dragInfo.fromPath, parent, placement);
+      }
     }
     endDrag();
   };
@@ -281,6 +289,19 @@ export const SidebarTree: React.FC<Props> = (props) => {
       }}
       onDrop={handleDropOnEmpty}
     >
+      <div className="sidebar-tree-header">
+        <span className="sidebar-tree-title">Tree</span>
+        {props.onAddGroup && (
+          <button
+            className="sidebar-tree-add-btn"
+            title="Ajouter un groupe à la racine"
+            onClick={() => setPendingNew({ parentPath: [], kind: 'group' })}
+          >
+            +
+          </button>
+        )}
+      </div>
+
       <div
         className={`tree-row tree-root ${selectedPath.length === 0 ? 'selected' : ''}`}
         onClick={() => onSelect([])}
@@ -289,7 +310,7 @@ export const SidebarTree: React.FC<Props> = (props) => {
         <span className="tree-label">Tous les tokens</span>
         <span className="tree-count">{countTokensUnder(tree)}</span>
       </div>
-      {ALL_LAYERS.filter((l) => (tree as any)[l]).map((layer) => (
+      {topLevelGroupKeys(tree).map((layer) => (
         <TreeNode
           key={layer}
           {...props}
@@ -309,6 +330,25 @@ export const SidebarTree: React.FC<Props> = (props) => {
           handleDropRow={handleDropRow}
         />
       ))}
+
+      {/* Inline create at top-level: triggered by the "+" button in the
+          sidebar header. Rendered as the last row, same affordances as a
+          new-subgroup inside a TreeNode. */}
+      {pendingNew && pendingNew.parentPath.length === 0 && pendingNew.kind === 'group' && (
+        <div className="tree-row" style={{ paddingLeft: 8 }}>
+          <span className="tree-toggle" />
+          <InlineRenameInput
+            initial=""
+            placeholder="new-group"
+            siblingNames={topLevelGroupKeys(tree)}
+            onConfirm={(name) => {
+              if (props.onAddGroup) props.onAddGroup([], name);
+              setPendingNew(null);
+            }}
+            onCancel={() => setPendingNew(null)}
+          />
+        </div>
+      )}
 
       {contextMenu && (
         <TreeContextMenu
@@ -374,7 +414,6 @@ const TreeNode: React.FC<TreeNodeProps> = (props) => {
   const isExpanded = expanded.has(key);
   const isSelected = selectedPath.join('.') === key;
   const hasGroupChildren = groupChildren.length > 0;
-  const isLayer = path.length === 1;
   const isEditing = editingPath?.join('.') === key;
 
   const rowRef = useRef<HTMLDivElement | null>(null);
@@ -392,7 +431,7 @@ const TreeNode: React.FC<TreeNodeProps> = (props) => {
       : [];
 
   const startEdit = () => {
-    if (!isLayer && props.onRename) setEditingPath(path);
+    if (props.onRename) setEditingPath(path);
   };
 
   const onRowClick = (e: React.MouseEvent) => {
@@ -401,7 +440,6 @@ const TreeNode: React.FC<TreeNodeProps> = (props) => {
   };
 
   const onDoubleClickLabel = (e: React.MouseEvent) => {
-    if (isLayer) return;
     e.stopPropagation();
     startEdit();
   };
@@ -426,7 +464,7 @@ const TreeNode: React.FC<TreeNodeProps> = (props) => {
         style={{ paddingLeft: 8 + level * 12 }}
         onClick={onRowClick}
         onContextMenu={(e) => handleContextMenu(e, path)}
-        draggable={!isLayer && !isEditing && !!props.onMove}
+        draggable={!isEditing && !!props.onMove}
         onDragStart={(e) => startDrag(e, path, !nodeIsGroup)}
         onDragEnd={endDrag}
         onDragOver={(e) => {
@@ -466,33 +504,31 @@ const TreeNode: React.FC<TreeNodeProps> = (props) => {
         {!isEditing && (
           <>
             <span className="tree-count">{tokenCount}</span>
-            {!isLayer && (
-              <div className="tree-actions">
-                {nodeIsGroup && props.onAddGroup && (
-                  <button
-                    className="tree-action-btn"
-                    title="New subgroup"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (!isExpanded) onToggle(key);
-                      setPendingNew({ parentPath: path, kind: 'group' });
-                    }}
-                  >
-                    +
-                  </button>
-                )}
+            <div className="tree-actions">
+              {nodeIsGroup && props.onAddGroup && (
                 <button
                   className="tree-action-btn"
-                  title="More actions"
+                  title="New subgroup"
                   onClick={(e) => {
                     e.stopPropagation();
-                    handleContextMenu(e, path);
+                    if (!isExpanded) onToggle(key);
+                    setPendingNew({ parentPath: path, kind: 'group' });
                   }}
                 >
-                  ⋯
+                  +
                 </button>
-              </div>
-            )}
+              )}
+              <button
+                className="tree-action-btn"
+                title="More actions"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleContextMenu(e, path);
+                }}
+              >
+                ⋯
+              </button>
+            </div>
           </>
         )}
       </div>
@@ -527,11 +563,6 @@ const TreeNode: React.FC<TreeNodeProps> = (props) => {
         </div>
       )}
 
-      {isExpanded && allChildren.length === 0 && !showPendingChild && (
-        <div className="tree-empty" style={{ paddingLeft: 8 + (level + 1) * 12 }}>
-          (vide)
-        </div>
-      )}
     </>
   );
 };
@@ -585,6 +616,17 @@ const InlineRenameInput: React.FC<InlineRenameInputProps> = ({
     onConfirm(value.trim());
   };
 
+  // Empty-blur should cancel — leaving the user stuck on an error message they
+  // didn't intend to trigger is bad UX (the typical "click elsewhere to abort"
+  // expectation). Non-empty invalid input still surfaces the error via submit().
+  const handleBlur = () => {
+    if (!value.trim()) {
+      onCancel();
+      return;
+    }
+    submit();
+  };
+
   return (
     <span className="tree-rename-wrap">
       <input
@@ -606,7 +648,7 @@ const InlineRenameInput: React.FC<InlineRenameInputProps> = ({
           }
           e.stopPropagation();
         }}
-        onBlur={submit}
+        onBlur={handleBlur}
         onClick={(e) => e.stopPropagation()}
       />
       {error && <span className="tree-rename-error">{error}</span>}
@@ -620,4 +662,13 @@ function countTokensUnder(node: any): number {
   let n = 0;
   for (const k of Object.keys(node)) n += countTokensUnder(node[k]);
   return n;
+}
+
+// Iterate top-level keys of the tree, keeping only groups. Skips JSON metadata
+// like "$schema", "$description" so the tree stays clean. Lets users create
+// arbitrary top-level layers — not just the historical primitives/semantic/...
+function topLevelGroupKeys(tree: TokenFile): string[] {
+  return Object.keys(tree)
+    .filter((k) => !k.startsWith('$'))
+    .filter((k) => isGroup((tree as any)[k]));
 }

@@ -39,7 +39,13 @@ export function getChildrenAt(
   path: string[]
 ): Array<{ name: string; isGroup: boolean }> {
   if (path.length === 0) {
-    return LAYERS.filter((l) => isGroup((tree as any)[l])).map((l) => ({ name: l, isGroup: true }));
+    // List every top-level key that is a group (filters out $schema and other
+    // root-level metadata). No longer restricted to the historical LAYERS list,
+    // so user-created top-level groups show up in PathPicker.
+    return Object.keys(tree)
+      .filter((k) => !k.startsWith('$'))
+      .filter((k) => isGroup((tree as any)[k]))
+      .map((k) => ({ name: k, isGroup: true }));
   }
   const node = getNodeAt(tree, path);
   if (!isGroup(node)) return [];
@@ -167,8 +173,11 @@ export function flattenTokens(tree: TokenFile): FlatToken[] {
     }
   }
 
-  for (const layer of LAYERS) {
-    if (tree[layer]) walk(tree[layer], [layer]);
+  // Walk every top-level group (not just the historical LAYERS list) so any
+  // user-created layer shows up in the flat token list.
+  for (const layer of Object.keys(tree)) {
+    if (layer.startsWith('$')) continue;
+    if (isGroup((tree as any)[layer])) walk((tree as any)[layer], [layer]);
   }
 
   return result;
@@ -299,6 +308,23 @@ export function renameReferences(tree: TokenFile, oldAlias: string, newAlias: st
  */
 export function getAllTokenNames(tree: TokenFile): string[] {
   return flattenTokens(tree).map((t) => t.fullName);
+}
+
+/**
+ * Get token full-names suitable as an alias target — i.e. tokens matching
+ * `type` (when provided) and excluding `excludeFullName` (typically the
+ * token being edited, to prevent self-reference). Used by every AliasPicker
+ * call site so the suggestions list is always type-consistent.
+ */
+export function getCompatibleAliasNames(
+  tree: TokenFile,
+  type?: string,
+  excludeFullName?: string
+): string[] {
+  return flattenTokens(tree)
+    .filter((t) => !type || t.type === type)
+    .filter((t) => t.fullName !== excludeFullName)
+    .map((t) => t.fullName);
 }
 
 /**

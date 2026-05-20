@@ -219,10 +219,13 @@ const DescriptionInput: React.FC<{ value: string; onChange: (v: string) => void 
 
 const ResolvedValue: React.FC<{ token: FlatToken; tree: TokenFile }> = ({ token, tree }) => {
   const v = token.value;
-  // For mode-typed values (light/dark), resolve each side
+  // For mode-typed values (light/dark), resolve each side. When the resolved
+  // target is itself a color pair (because the alias points at a token using
+  // light/dark modes), pick the matching mode — otherwise the pair object
+  // would render as "[object Object]".
   if (v && typeof v === 'object' && !Array.isArray(v) && ('light' in v || 'dark' in v)) {
-    const rl = resolveValue(v.light, tree);
-    const rd = resolveValue(v.dark, tree);
+    const rl = pickMode(resolveValue(v.light, tree), 'light');
+    const rd = pickMode(resolveValue(v.dark, tree), 'dark');
     return (
       <div className="resolved-modes">
         <ResolvedAtom value={rl} type={token.type} />
@@ -250,8 +253,25 @@ const ResolvedAtom: React.FC<{ value: any; type?: string }> = ({ value, type }) 
       </span>
     );
   }
+  // Object fallback: aliased target with a structure we can't render as a
+  // primitive (typography, shadow, unexpected pair shape, etc.). Use the
+  // type-aware summarizer so the user at least sees something readable
+  // instead of the dreaded "[object Object]".
+  if (value && typeof value === 'object') {
+    return <span className="resolved-text mono">{summarizeObject(value, type)}</span>;
+  }
   return <span className="resolved-text mono">{String(value ?? '—')}</span>;
 };
+
+// If the resolved value is itself a {light, dark} pair (because the alias
+// points at a mode-typed token), return the matching side. Otherwise return
+// the value as-is.
+function pickMode(value: any, mode: 'light' | 'dark'): any {
+  if (value && typeof value === 'object' && !Array.isArray(value) && mode in value) {
+    return value[mode];
+  }
+  return value;
+}
 
 function summarizeObject(o: any, type?: string): string {
   if (!o) return '—';

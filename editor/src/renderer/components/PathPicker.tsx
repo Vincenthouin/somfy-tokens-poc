@@ -37,6 +37,12 @@ export const PathPicker: React.FC<Props> = ({ tree, initialPath, onChange }) => 
     const existing = getChildrenAt(tree, parentPath).filter((c) => c.isGroup);
     const selected = path[depth];
     const label = depth === 0 ? 'layer' : 'groupe';
+    // The deepest level is the one right after the current selection — it has
+    // no `selected` value and represents "go one level deeper". On that level
+    // we replace the dropdown with an explicit "+ Add new subgroup" button so
+    // the affordance is clearer (the dropdown is reserved for picking an
+    // existing parent at intermediate levels).
+    const isDeepest = selected === undefined;
 
     // Inline input mode (creating a new segment at this depth)
     if (newSegmentInput && newSegmentInput.depth === depth) {
@@ -74,10 +80,47 @@ export const PathPicker: React.FC<Props> = ({ tree, initialPath, onChange }) => 
       );
     }
 
-    // Build the option list: existing groups + pending segment (if any) + "+ Nouveau"
+    // Build the option list (existing groups + pending segment).
     const names = new Set(existing.map((c) => c.name));
     if (selected && !names.has(selected)) names.add(selected);
 
+    // At the deepest level (no selection yet) — top-level or nested, same
+    // pattern — pair the dropdown of existing groups with an explicit
+    // "+ Nouveau" button. If no existing groups at this level, render only
+    // the button (a "— groupe —" dropdown alone would be confusing).
+    if (isDeepest) {
+      const hasExisting = names.size > 0;
+      return (
+        <div className="path-segment" key={`add-${depth}`}>
+          {hasExisting && (
+            <select
+              value={selected || ''}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v === '') updatePath(parentPath);
+                else updatePath([...parentPath, v]);
+              }}
+            >
+              <option value="">— {label} —</option>
+              {Array.from(names).sort().map((name) => (
+                <option key={name} value={name}>{name}</option>
+              ))}
+            </select>
+          )}
+          <button
+            type="button"
+            className="path-add-btn"
+            onClick={() => setNewSegmentInput({ depth, value: '' })}
+            title={`Créer un nouveau ${label} sous ${parentPath.join('.') || '(racine)'}`}
+          >
+            + Nouveau {label}
+          </button>
+        </div>
+      );
+    }
+
+    // Intermediate levels (or top level when no layer is picked yet) keep the
+    // dropdown so the user can navigate to an existing group.
     return (
       <div className="path-segment" key={`select-${depth}`}>
         <select

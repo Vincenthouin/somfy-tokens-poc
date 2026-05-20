@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { TokenFile, Token, TokenType } from '../../shared/types';
-import { isGroup, getNodeAt, getAllTokenNames } from '../utils/tokenTree';
+import { isGroup, getNodeAt, getCompatibleAliasNames } from '../utils/tokenTree';
 import { PathPicker } from './PathPicker';
 import { ValueEditor } from './ValueEditor';
 
@@ -73,7 +73,12 @@ export const AddTokenModal: React.FC<Props> = ({ tree, initialPath, onConfirm, o
   const [description, setDescription] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  const allTokenNames = getAllTokenNames(tree);
+  // Filter alias suggestions to tokens of the same type as the one being created
+  // (no exclude since the new token doesn't exist in the tree yet).
+  const allTokenNames = React.useMemo(
+    () => getCompatibleAliasNames(tree, type),
+    [tree, type]
+  );
 
   const parentNode = getNodeAt(tree, parentPath);
   const parentIsGroup = parentPath.length > 0 && isGroup(parentNode);
@@ -120,8 +125,8 @@ export const AddTokenModal: React.FC<Props> = ({ tree, initialPath, onConfirm, o
   };
 
   return (
-    <div className="modal-backdrop" onClick={onCancel}>
-      <div className="modal modal-wide add-token-modal" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-backdrop">
+      <div className="modal modal-wide add-token-modal">
         <h2>Ajouter un token</h2>
 
         <div className="form-group">

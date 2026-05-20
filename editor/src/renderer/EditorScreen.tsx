@@ -74,7 +74,6 @@ export const EditorScreen: React.FC<Props> = ({ project, onProjectChange, onBack
   // Local-project auto-save: "idle" when caught up, "pending" when a save is
   // debounced, "saving" during the IPC call, "saved" briefly after success.
   const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'pending' | 'saving' | 'saved'>('idle');
-  const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [multiSelected, setMultiSelected] = useState<Set<string>>(new Set());
 
@@ -255,7 +254,9 @@ export const EditorScreen: React.FC<Props> = ({ project, onProjectChange, onBack
       addToken(next, parentPath, name, token);
       setTree(next);
       setAddTokenModal(null);
-      setSelectedTokenPath([...parentPath, name]);
+      // Don't auto-select the new token: the inspector would slide in and
+      // hide the user's overview right after creation. The user can click
+      // the new row in the table to inspect it.
     } catch (e: any) {
       alert(e.message || 'Erreur');
     }
@@ -273,6 +274,16 @@ export const EditorScreen: React.FC<Props> = ({ project, onProjectChange, onBack
       addGroup(next, parentPath, name);
       setTree(next);
       setAddGroupModal(null);
+      // Auto-expand every ancestor up to (and including) the parent so the
+      // newly-created group is visible right away. Also select it so the
+      // user can immediately add tokens / subgroups under it.
+      const newPath = [...parentPath, name];
+      setExpandedGroups((prev) => {
+        const out = new Set(prev);
+        for (let i = 1; i <= parentPath.length; i++) out.add(parentPath.slice(0, i).join('.'));
+        return out;
+      });
+      setSidebarPath(newPath);
     } catch (e: any) {
       alert(e.message || 'Erreur');
     }
@@ -587,10 +598,14 @@ export const EditorScreen: React.FC<Props> = ({ project, onProjectChange, onBack
   const originalFlatMap = new Map(flattenTokens(originalTree).map((t) => [t.fullName, t]));
 
   const sidebarPrefix = sidebarPath.join('.');
-  const filtered = flatTokens.filter((t) => {
-    if (sidebarPrefix && !t.fullName.startsWith(sidebarPrefix + '.') && t.fullName !== sidebarPrefix) {
-      return false;
-    }
+  // Tokens visible in the current sidebar context, BEFORE the type/search
+  // filters. Used to feed the FilterPills so the counts reflect "what's
+  // available in this group" rather than the whole tree.
+  const contextTokens = flatTokens.filter((t) => {
+    if (!sidebarPrefix) return true;
+    return t.fullName.startsWith(sidebarPrefix + '.') || t.fullName === sidebarPrefix;
+  });
+  const filtered = contextTokens.filter((t) => {
     if (!matchesFilter(t, typeFilter)) return false;
     if (search && !t.fullName.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
@@ -642,35 +657,6 @@ export const EditorScreen: React.FC<Props> = ({ project, onProjectChange, onBack
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-          <div className="add-menu-wrap">
-            <button
-              className="primary"
-              onClick={() => setAddMenuOpen((o) => !o)}
-              onBlur={() => setTimeout(() => setAddMenuOpen(false), 150)}
-            >
-              + Add ▾
-            </button>
-            {addMenuOpen && (
-              <div className="add-menu">
-                <button
-                  onMouseDown={() => {
-                    setAddTokenModal({ initialPath: sidebarPath });
-                    setAddMenuOpen(false);
-                  }}
-                >
-                  Token
-                </button>
-                <button
-                  onMouseDown={() => {
-                    setAddGroupModal({ initialPath: sidebarPath });
-                    setAddMenuOpen(false);
-                  }}
-                >
-                  Group
-                </button>
-              </div>
-            )}
-          </div>
           <button
             onClick={undo}
             disabled={!canUndo}
@@ -713,25 +699,20 @@ export const EditorScreen: React.FC<Props> = ({ project, onProjectChange, onBack
         onAddToken={handleSidebarAddToken}
         onDuplicate={handleDuplicateNode}
         onDelete={handleSidebarDelete}
+        // The header "+ Group" button always starts from the root so it's
+        // predictable — picking a parent is done inside the modal's PathPicker.
+        onOpenAddGroupModal={() => setAddGroupModal({ initialPath: [] })}
       />
 
       <main className="main-panel">
         <div className="main-toolbar">
-          <FilterPills tokens={flatTokens} active={typeFilter} onChange={setTypeFilter} />
+          <FilterPills tokens={contextTokens} active={typeFilter} onChange={setTypeFilter} />
           {sidebarPath.length > 0 && (
             <div className="sidebar-context">
               <span className="muted">Contexte :</span>{' '}
               <span className="mono">{sidebarPath.join('.')}</span>
               <div className="context-actions">
                 <button onClick={() => setAddTokenModal({ initialPath: sidebarPath })}>+ Token</button>
-                <button onClick={() => setAddGroupModal({ initialPath: sidebarPath })}>+ Group</button>
-                <button
-                  onClick={() => handleDeleteGroup(sidebarPath)}
-                  className="danger"
-                  title="Supprimer ce groupe"
-                >
-                  🗑
-                </button>
               </div>
             </div>
           )}

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { FlatToken, TokenFile } from '../../shared/types';
-import { findReferences } from '../utils/tokenTree';
+import { findReferences, getCompatibleAliasNames } from '../utils/tokenTree';
 import { ValueEditor } from './ValueEditor';
 
 interface Props {
@@ -28,6 +28,13 @@ export const TokenInspector: React.FC<Props> = ({
 }) => {
   const lastSeg = token.path[token.path.length - 1];
   const [editingName, setEditingName] = useState(lastSeg);
+  // Restrict alias suggestions to tokens matching the current token's type,
+  // and exclude self. Computed from `tree` rather than the (already-flattened)
+  // `allTokenNames` prop so the type info is available.
+  const aliasCandidates = React.useMemo(
+    () => getCompatibleAliasNames(tree, token.type, token.fullName),
+    [tree, token.type, token.fullName]
+  );
 
   useEffect(() => {
     setEditingName(lastSeg);
@@ -38,6 +45,24 @@ export const TokenInspector: React.FC<Props> = ({
       onRename(token.path, editingName.trim());
     } else {
       setEditingName(lastSeg);
+    }
+  };
+
+  // Mirror the AddTokenModal's "Mode light + dark" checkbox: toggling promotes
+  // a single value to { light, dark } and vice versa. Operates on token.value
+  // (the $value-based pair shape) — the legacy $extensions.modes path is left
+  // untouched and stays editable via the side-by-side rows above.
+  const handleToggleColorModes = (next: boolean) => {
+    const current = token.value;
+    const currentIsPair = isColorPair(current);
+    if (next === currentIsPair) return;
+    if (next) {
+      const lightSeed =
+        typeof current === 'string' && current.trim().length > 0 ? current : '#000000';
+      onValueChange(token.path, { light: lightSeed, dark: '#FFFFFF' });
+    } else {
+      const fallback = currentIsPair ? current.light || '#000000' : '#000000';
+      onValueChange(token.path, fallback);
     }
   };
 
@@ -78,6 +103,18 @@ export const TokenInspector: React.FC<Props> = ({
 
       <div className="inspector-section">
         <label className="inspector-label">Valeur</label>
+        {token.type === 'color' && (
+          <div className="inspector-mode-toggle">
+            <label>
+              <input
+                type="checkbox"
+                checked={isColorPair(token.value) || !!token.modes}
+                onChange={(e) => handleToggleColorModes(e.target.checked)}
+              />{' '}
+              Mode light + dark
+            </label>
+          </div>
+        )}
         {token.modes ? (
           <>
             <div className="mode-row">
@@ -85,7 +122,7 @@ export const TokenInspector: React.FC<Props> = ({
               <ValueEditor
                 value={token.modes.light}
                 type={token.type}
-                allTokenNames={allTokenNames}
+                allTokenNames={aliasCandidates}
                 onChange={(v) => onValueChangeMode(token.path, 'light', v)}
               />
             </div>
@@ -94,7 +131,7 @@ export const TokenInspector: React.FC<Props> = ({
               <ValueEditor
                 value={token.modes.dark}
                 type={token.type}
-                allTokenNames={allTokenNames}
+                allTokenNames={aliasCandidates}
                 onChange={(v) => onValueChangeMode(token.path, 'dark', v)}
               />
             </div>
@@ -103,7 +140,7 @@ export const TokenInspector: React.FC<Props> = ({
           <ValueEditor
             value={token.value}
             type={token.type}
-            allTokenNames={allTokenNames}
+            allTokenNames={aliasCandidates}
             onChange={(v) => onValueChange(token.path, v)}
           />
         )}
@@ -141,3 +178,9 @@ export const TokenInspector: React.FC<Props> = ({
     </aside>
   );
 };
+
+function isColorPair(v: any): boolean {
+  return (
+    v && typeof v === 'object' && !Array.isArray(v) && ('light' in v || 'dark' in v)
+  );
+}
