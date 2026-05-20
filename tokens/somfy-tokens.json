@@ -851,7 +851,7 @@
           "content": {
             "$type": "color",
             "$value": {
-              "light": "#FFFFFF",
+              "light": "#000000",
               "dark": "#95FF00"
             }
           },
