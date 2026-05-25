@@ -23,7 +23,7 @@ export const ProjectSettingsModal: React.FC<Props> = ({
     pat: '',
     owner: '',
     repo: '',
-    branch: 'main',
+    branch: 'develop',
     filePath: 'tokens.json',
   };
   const [pat, setPat] = useState(initialGithub.pat);
