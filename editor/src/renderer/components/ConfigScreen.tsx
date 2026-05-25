@@ -10,7 +10,7 @@ export const ConfigScreen: React.FC<Props> = ({ initial, onSave }) => {
   const [pat, setPat] = useState(initial?.pat || '');
   const [owner, setOwner] = useState(initial?.owner || '');
   const [repo, setRepo] = useState(initial?.repo || '');
-  const [branch, setBranch] = useState(initial?.branch || 'main');
+  const [branch, setBranch] = useState(initial?.branch || 'develop');
   const [filePath, setFilePath] = useState(initial?.filePath || 'tokens/somfy-tokens.json');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);

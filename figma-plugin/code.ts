@@ -55,7 +55,7 @@ const WEIGHT_TO_STYLE: { [key: number]: string } = {
 // ---------- Storage ----------
 async function loadConfig() {
   const config = await figma.clientStorage.getAsync("config");
-  return config || { token: "", owner: "", repo: "", branch: "main", filePath: "" };
+  return config || { token: "", owner: "", repo: "", branch: "develop", filePath: "" };
 }
 
 async function saveConfig(config: any) {

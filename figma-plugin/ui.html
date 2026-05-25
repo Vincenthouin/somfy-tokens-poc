@@ -782,7 +782,7 @@
     <div class="row">
       <div class="field">
         <label>Branch</label>
-        <input type="text" id="cfg-branch" placeholder="main" value="main" />
+        <input type="text" id="cfg-branch" placeholder="develop" value="develop" />
       </div>
       <div class="field">
         <label>File path</label>
@@ -1334,7 +1334,7 @@
       token: $('cfg-token').value.trim(),
       owner: $('cfg-owner').value.trim(),
       repo: $('cfg-repo').value.trim(),
-      branch: $('cfg-branch').value.trim() || 'main',
+      branch: $('cfg-branch').value.trim() || 'develop',
       filePath: $('cfg-path').value.trim()
     };
     updateRepoDisplay();
@@ -1346,7 +1346,7 @@
       token: $('cfg-token').value.trim(),
       owner: $('cfg-owner').value.trim(),
       repo: $('cfg-repo').value.trim(),
-      branch: $('cfg-branch').value.trim() || 'main',
+      branch: $('cfg-branch').value.trim() || 'develop',
       filePath: $('cfg-path').value.trim()
     };
     const ok = await fetchTokens(cfg, true);
@@ -1632,7 +1632,7 @@
 
   async function fetchLatestSha(cfg) {
     if (!cfg.token || !cfg.owner || !cfg.repo || !cfg.filePath) return null;
-    const branch = cfg.branch || 'main';
+    const branch = cfg.branch || 'develop';
     const url = `https://api.github.com/repos/${cfg.owner}/${cfg.repo}/commits`
       + `?path=${encodeURIComponent(cfg.filePath)}&sha=${branch}&per_page=1`;
     try {
@@ -1835,7 +1835,7 @@
       $('cfg-token').value = msg.config.token || '';
       $('cfg-owner').value = msg.config.owner || '';
       $('cfg-repo').value = msg.config.repo || '';
-      $('cfg-branch').value = msg.config.branch || 'main';
+      $('cfg-branch').value = msg.config.branch || 'develop';
       $('cfg-path').value = msg.config.filePath || '';
       updateRepoDisplay();
 

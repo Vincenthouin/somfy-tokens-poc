@@ -19,7 +19,7 @@ export const ProjectWizard: React.FC<Props> = ({ onCancel, onCreated }) => {
   const [pat, setPat] = useState('');
   const [owner, setOwner] = useState('');
   const [repo, setRepo] = useState('');
-  const [branch, setBranch] = useState('main');
+  const [branch, setBranch] = useState('develop');
   const [filePath, setFilePath] = useState('tokens/somfy-tokens.json');
 
   // Import state
