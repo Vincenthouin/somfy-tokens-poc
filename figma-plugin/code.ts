@@ -4,7 +4,7 @@
 //           typography (Text Styles), shadow (Effect Styles)
 // ============================================================
 
-figma.showUI(__html__, { width: 420, height: 600, themeColors: true });
+figma.showUI(__html__, { width: 420, height: 720, themeColors: true });
 
 interface FlatToken {
   path: string;
@@ -1067,6 +1067,38 @@ function buildPushPayload(drifts: DriftItem[]): PushPayload {
   return { tree, applied, skipped };
 }
 
+/**
+ * Build the "future" JSON tree representing the state Figma would publish next:
+ * cachedTokenTree (if any) + every detected drift applied. Works without GitHub
+ * config: starts from an empty tree and includes every Figma item as ADDED.
+ * Used by the "Export JSON" footer button.
+ */
+async function buildExportTree(): Promise<any> {
+  const tree: any = cachedTokenTree ? cloneTree(cachedTokenTree) : {};
+  // Standard drift detection (modified / renamed / deleted + ADDED if cachedTokens
+  // is populated).
+  const drifts = await checkLocalDesync();
+  const seen = new Set(drifts.map((d) => d.path));
+  // If nothing was cached (no GitHub setup), checkLocalDesync skipped the ADDED
+  // pass. Run it directly so every Figma Variable / Style ends up in the export.
+  if (cachedTokens.length === 0) {
+    const added = await detectAddedItems();
+    for (const d of added) {
+      if (!seen.has(d.path)) drifts.push(d);
+    }
+  }
+  for (const drift of drifts) {
+    applyDriftToTree(tree, drift);
+  }
+  // Sensible default metadata when the source file didn't carry any — keeps
+  // the exported file standards-friendly without overwriting user input.
+  if (!tree.$schema) tree.$schema = "https://design-tokens.github.io/community-group/format/";
+  if (!tree.$description || !String(tree.$description).trim()) {
+    tree.$description = "Design Tokens (W3C format)";
+  }
+  return tree;
+}
+
 // ---------- Read existing Figma state ----------
 async function readFigmaVariables(): Promise<Map<string, any>> {
   const map = new Map<string, any>();
@@ -1768,7 +1800,11 @@ figma.ui.onmessage = async (msg) => {
 
     else if (msg.type === "apply-tokens") {
       if (cachedTokens.length === 0) {
-        figma.ui.postMessage({ type: "error", message: "No tokens cached. Click 'Check for updates' first." });
+        // Two cases: never fetched (cachedTokenTree null) vs fetched empty JSON.
+        const msg2 = cachedTokenTree
+          ? "Le JSON est vide — rien à appliquer. Ajoutez des tokens dans Figma puis poussez sur GitHub pour peupler le fichier."
+          : "Aucun token chargé. Cliquez sur 'Check' pour récupérer le JSON depuis GitHub.";
+        figma.ui.postMessage({ type: "error", message: msg2 });
         return;
       }
 
@@ -1953,6 +1989,15 @@ figma.ui.onmessage = async (msg) => {
         });
       } catch (e: any) {
         figma.ui.postMessage({ type: "push-payload-ready", error: e && e.message ? e.message : String(e) });
+      }
+    }
+
+    else if (msg.type === "request-export-json") {
+      try {
+        const tree = await buildExportTree();
+        figma.ui.postMessage({ type: "export-json-ready", tree });
+      } catch (e: any) {
+        figma.ui.postMessage({ type: "export-json-ready", error: e && e.message ? e.message : String(e) });
       }
     }
 

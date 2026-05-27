@@ -212,7 +212,15 @@ ipcMain.handle(
       filters: [{ name: 'JSON', extensions: ['json'] }],
     });
     if (res.canceled || !res.filePath) return { canceled: true };
-    await fs.writeFile(res.filePath, JSON.stringify(payload.tokens, null, 2) + '\n', 'utf-8');
+    // Inject sensible defaults so an exported file is standards-friendly even
+    // when the source tree (e.g. brand new local project) didn't carry any
+    // metadata. Existing values are preserved.
+    const out: any = { ...payload.tokens };
+    if (!out.$schema) out.$schema = 'https://design-tokens.github.io/community-group/format/';
+    if (!out.$description || !String(out.$description).trim()) {
+      out.$description = 'Design Tokens (W3C format)';
+    }
+    await fs.writeFile(res.filePath, JSON.stringify(out, null, 2) + '\n', 'utf-8');
     return { canceled: false, filePath: res.filePath };
   }
 );

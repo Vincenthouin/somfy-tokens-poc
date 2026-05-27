@@ -802,6 +802,14 @@
       <button class="poll-btn" data-interval="0">Off</button>
     </div>
     <div class="help">Plugin checks GitHub for new versions of the token file at this interval.</div>
+
+    <div class="section-divider section-label">Local export</div>
+    <div class="actions" style="margin-top: 8px;">
+      <button id="btn-export" class="btn-secondary">⇩ Export JSON</button>
+    </div>
+    <div class="help">
+      Downloads the JSON even without prior GitHub config — useful to bootstrap a repo or take a one-off snapshot.
+    </div>
   </div>
 
   <div class="footer">
@@ -1395,6 +1403,29 @@
     isBusy = false;
   };
 
+  // Export JSON: works without GitHub config too — code.ts scans Figma and
+  // builds the W3C tree from cachedTokenTree + drifts (or empty tree + all
+  // Figma items as ADDED).
+  $('btn-export').onclick = () => {
+    $('status').textContent = ' · Building export…';
+    parent.postMessage({ pluginMessage: { type: 'request-export-json' } }, '*');
+  };
+
+  // Trigger a real download via a transient <a> with a Blob URL. Works inside
+  // Figma's iframe sandbox (no electron-style dialog needed).
+  function downloadJsonFile(tree, filename) {
+    const text = JSON.stringify(tree, null, 2) + '\n';
+    const blob = new Blob([text], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
   $('btn-apply').onclick = () => {
     $('status').textContent = ' · Applying…';
     parent.postMessage({ pluginMessage: { type: 'apply-tokens', selectedPaths: [] } }, '*');
@@ -1932,6 +1963,17 @@
       }
       pendingPushTree = msg.tree;
       openPushModal(msg.applied || [], msg.skipped || []);
+    } else if (msg.type === 'export-json-ready') {
+      $('status').textContent = '';
+      if (msg.error) {
+        toast(msg.error, true);
+        return;
+      }
+      // Neutral default filename — matches the convention used elsewhere
+      // (most repos store this as `tokens.json` at the root or under tokens/).
+      const filename = 'tokens.json';
+      downloadJsonFile(msg.tree, filename);
+      toast(`✓ Exported ${filename}`);
     } else if (msg.type === 'error') {
       toast(msg.message, true);
       $('status').textContent = '';
